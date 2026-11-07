@@ -41,7 +41,7 @@ export function Timeline() {
           </div>
         </div>
         <div className="flex border border-line2" role="radiogroup" aria-label="Oynatma hızı">
-          {[1, 2, 4].map((s) => (
+          {[0.5, 1, 2, 4].map((s) => (
             <button key={s} role="radio" aria-checked={speed === s} onClick={() => setSpeed(s)} className={`px-2 py-1 text-[12px] font-medium ${speed === s ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>{s}×</button>
           ))}
         </div>
