@@ -120,7 +120,7 @@ export type ResourceStatus = 'unavailable' | 'idle' | 'enroute' | 'mopping' | 'a
 
 export interface CommanderAction {
   type: 'attack' | 'establish_line' | 'assign_line' | 'air_drop' | 'evacuate' | 'withdraw' | 'hold'
-  candidate: 'A' | 'B' | null
+  candidate: 'A' | 'B' | 'C' | null
   line_id: string | null
   sector: Sector | null
   resource_id: string | null
@@ -137,7 +137,7 @@ export interface CommanderOutput {
 export interface Decision {
   step: number
   trigger: string
-  source: 'ai' | 'rules'
+  source: 'ai' | 'rules' | 'human'
   /** Why the rules ran instead of the AI, when they did. */
   fallbackReason?: string
   output: CommanderOutput

@@ -268,3 +268,47 @@ export async function reportHandler(req: IncomingMessage, res: ServerResponse, n
     return send(res, 500, { error: (e as Error).message })
   }
 }
+
+// ---------------------------------------------------------------- Tatbikat: the optimal prevention plan
+
+const DRILL_SYSTEM = `Sen orman yangını önleme planlama uzmanısın. ForestGuard tatbikat sınavında (temsili, eğitim amaçlı) bir kullanıcı, yangının nerede çıkacağını bilmeden önlem planı yaptı. Şimdi en optimal planı sen göstereceksin.
+
+Sana bölge, hava, bütçe, zarar değerleri (yanan orman hektarı, diğer alan, yangının ulaştığı yerleşim başına TL), önlemsiz durumda en olası yangınların sonuçları ve aday önlemler gelir: her adayın kimliği, türü, boyutu, maliyeti (TL), doğaya etkisi (eşdeğer hektar) ve gerekçesi.
+
+Görevin: beklenen zarar azalması − önlem maliyeti en yüksek olacak, doğaya en az dokunan önlem setini seçmek.
+- Yalnızca verilen aday kimliklerinden seç; bütçeyi aşma.
+- Aynı alanı izleyen iki gözetleme seçme; kamera ucuzsa ve yeterliyse kuleyi seçme.
+- Yangının ulaştığı yerleşimlerin çevre temizliği genellikle en verimli önlemdir.
+- Gereğinden fazla önlem alma: önlediği zarardan pahalı bir önlemi seçme. Doğaya büyük müdahale (geniş aralama, uzun geniş şerit) ancak açıkça gerekçeliyse.
+- Her seçim için verideki sayılara dayanan tek cümlelik gerekçe yaz; summary'de neden bu setin optimal olduğunu ve neyi bilerek seçmediğini 2-3 cümleyle anlat.
+Metinler Türkçe, kısa ve somut olsun; sayıları uydurma.`
+
+export async function drillHandler(req: IncomingMessage, res: ServerResponse, next?: () => void) {
+  if (req.method !== 'POST') return next ? next() : send(res, 404, { error: 'not found' })
+  if (!hasKey()) return send(res, 503, { error: 'Sunucuda OPENAI_API_KEY tanımlı değil.' })
+  let body: { context?: unknown }
+  try {
+    body = (await readJson(req)) as { context?: unknown }
+  } catch {
+    return send(res, 400, { error: 'Geçersiz JSON.' })
+  }
+  if (!body.context) return send(res, 400, { error: 'context eksik.' })
+  client ??= new OpenAI()
+  try {
+    const response = await client.responses.parse({
+      model: model(),
+      instructions: DRILL_SYSTEM,
+      input: `Tatbikat verisi:\n${JSON.stringify(body.context, null, 1)}`,
+      reasoning: { effort: 'low' },
+      max_output_tokens: 16000,
+      text: { format: zodTextFormat(Prevention, 'optimal_plan') },
+    })
+    if (!response.output_parsed) return send(res, 502, { error: `Yanıt şemaya uymadı (durum: ${response.status}).` })
+    return send(res, 200, { output: response.output_parsed, model: model() })
+  } catch (e) {
+    if (e instanceof OpenAI.AuthenticationError) return send(res, 503, { error: 'OpenAI API anahtarı geçersiz.' })
+    if (e instanceof OpenAI.RateLimitError) return send(res, 429, { error: 'OpenAI istek sınırına veya kotaya takıldı.' })
+    if (e instanceof OpenAI.APIError) return send(res, 502, { error: `OpenAI API hatası ${e.status ?? ''}: ${e.message}` })
+    return send(res, 500, { error: (e as Error).message })
+  }
+}

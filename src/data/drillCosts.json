@@ -1,0 +1,21 @@
+{
+  "_aciklama": "Tatbikat sınavlarının maliyet ve doğa etkisi değerleri. Türk lirası, 2025 fiyatlarıyla YAKLAŞIK. OGM birim fiyatları ve ihale bedelleri kamuya açık bir kaynakta toplu halde bulunamadı; değerler sektör ve haber kaynaklarından türetilmiş varsayımlardır. Gerçek birim fiyat cetveli (OGM bölge müdürlüğü, EKAP ihale sonuçları) ile güncelleyin. dogaHa: önlemin bitki örtüsüne verdiği zarar, eşdeğer hektar (tam kaldırılan orman = 1).",
+  "_durum": "yaklaşık",
+  "butceTL": 15000000,
+  "araclar": {
+    "kule": { "kurulumTL": 3500000, "sezonTL": 900000, "gorusKm": 15, "erkenTespitDk": 20, "dogaHa": 0.05, "not": "Çelik kule, gözcü kabini, enerji ve haberleşme; sezon: 2 gözcünün 4 aylık maliyeti." },
+    "kamera": { "kurulumTL": 650000, "sezonTL": 120000, "gorusKm": 10, "erkenTespitDk": 15, "dogaHa": 0.01, "not": "Mevcut bir direğe akıllı duman algılama kamerası, güneş paneli ve iletişim." },
+    "serit": { "kmTL_30m": 450000, "bakimKmTL": 40000, "dogaHaKm_30m": 3, "not": "Ağaç kesimi, alt yakıt temizliği, greyderli toprak yol. Genişlik arttıkça maliyet ve doğaya etki orantılı artar." },
+    "aralama": { "haTL": 30000, "dogaHa": 0.35, "yakitCarpani": 0.6, "not": "Sık kızılçamda seyreltme, budama ve alt yakıt temizliği; hektar başına." },
+    "yerlesim": { "haTL": 18000, "dogaHa": 0.25, "yakitCarpani": 0.25, "halkaM": 150, "not": "Yerleşim çevresinde 150 m kuşakta çalı ve kuru ot temizliği, budama." },
+    "havuz": { "kurulumTL": 1200000, "dogaHa": 0.1, "not": "500 m³ beton yangın havuzu, helikopter ve arazöz dolumu için." },
+    "konuslanma": { "sezonTL": 2400000, "dogaHa": 0.2, "not": "Haziran–Eylül: 2 arazöz ve 1 iş makinesi, personel ve yakıt." }
+  },
+  "zarar": {
+    "ormanHaTL": 120000,
+    "digerHaTL": 25000,
+    "yerlesimTL": 15000000,
+    "not": "Yangın zararı: yanan orman için ağaçlandırma, erozyon önlemi ve odun kaybı; maki ve seyrek alan için daha düşük; yangının ulaştığı her yerleşim için konut ve altyapı hasarı (temsili)."
+  },
+  "ihbarDk": 40
+}

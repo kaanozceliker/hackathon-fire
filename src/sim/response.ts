@@ -93,7 +93,7 @@ interface Line {
 }
 
 interface Candidate {
-  id: 'A' | 'B'
+  id: 'A' | 'B' | 'C'
   hoursAhead: number
   cells: number[]
 }
@@ -111,7 +111,7 @@ export interface CommanderContext {
   weather_now: { wind_kmh: number; wind_from: string; humidity_pct: number; temperature_c: number }
   weather_next_hours: { T: string; wind_kmh: number; wind_from: string; humidity_pct: number }[]
   forecast_without_new_actions: { area_in_2h_ha: number; area_in_5h_ha: number }
-  line_candidates: { id: 'A' | 'B'; fire_reaches_it_in_h: number; length_km: number; settlements_inside: string[]; sectors: { sector: Sector; radius_km: number }[] }[]
+  line_candidates: { id: 'A' | 'B' | 'C'; fire_reaches_it_in_h: number; length_km: number; settlements_inside: string[]; sectors: { sector: Sector; radius_km: number }[] }[]
   next_line_id: string
   lines: { id: string; level: number; created: string; sectors: { sector: Sector; built_pct: number; breached: boolean; resources: string[] }[] }[]
   resources: { id: string; name: string; type: string; status: string; task: string | null; eta: string | null }[]
@@ -139,7 +139,11 @@ const KIND_TR: Record<ResourceKind, string> = { crew: 'arazöz ekibi', dozer: 'i
 export interface RunOptions {
   fuelMult?: Float32Array
   extraBase?: LatLon
+  /** More pre-positioning bases (Tatbikat), each with 2 crews and a dozer. */
+  extraBases?: LatLon[]
   extraWater?: Infrastructure['water']
+  /** Keep the given response start even if an existing lookout tower sees the fire (Tatbikat: the report time is part of the exam). */
+  noTowerGain?: boolean
 }
 
 export class ResponseRun {
@@ -177,7 +181,7 @@ export class ResponseRun {
     this.st = new FireStepper(grid, config)
     if (opts.fuelMult) this.st.scaleFuel(opts.fuelMult)
     // an existing lookout tower or camera that sees the ignition spots the fire earlier
-    const tower = config.ignoreExisting ? null : towerSeeing(grid.areaId, config.ignition)
+    const tower = config.ignoreExisting || opts.noTowerGain ? null : towerSeeing(grid.areaId, config.ignition)
     this.startStep = Math.max(0, Math.round((responseStartMin - (tower ? DETECTION_GAIN_MIN : 0)) / STEP_MIN))
     if (tower) this.events.push({ step: 0, kind: 'arrive', text: `${tower.name} yangını gördü: müdahale ${DETECTION_GAIN_MIN} dk erken başlıyor.` })
     const n = grid.cols * grid.rows
@@ -202,6 +206,10 @@ export class ResponseRun {
         for (let k = 1; k <= b.crews; k++) this.addResource(`mevcut-${i + 1}-${k}`, `${b.name} arazöz ${k}`, 'crew', b.pos, this.startStep)
         for (let k = 1; k <= b.dozers; k++) this.addResource(`mevcut-${i + 1}-d${k}`, `${b.name} iş makinesi ${k}`, 'dozer', b.pos, this.startStep)
       })
+    ;(opts.extraBases ?? []).forEach((b, i) => {
+      for (let k = 1; k <= 2; k++) this.addResource(`tb-${i + 1}-${k}`, `Konuşlanma ${i + 1} arazöz ${k}`, 'crew', b, this.startStep)
+      this.addResource(`tb-${i + 1}-d`, `Konuşlanma ${i + 1} iş makinesi`, 'dozer', b, this.startStep)
+    })
     if (opts.extraBase) {
       for (let k = 1; k <= 2; k++) this.addResource(`on-${k}`, `Ön konuşlanma arazöz ${k}`, 'crew', opts.extraBase, this.startStep)
       this.addResource('on-dozer', 'Ön konuşlanma iş makinesi', 'dozer', opts.extraBase, this.startStep)
@@ -215,6 +223,12 @@ export class ResponseRun {
       for (let k = 0; k < t.dozers; k++) this.addResource(`takviye-dozer-${w + 1}-${k + 1}`, `Takviye iş makinesi${t.dozers > 1 ? ` ${k + 1}` : ''}`, 'dozer', reBase, at)
     })
     this.wasDaylight = this.daylight(0)
+  }
+
+  /** Resources whose time has come are ready at a decision point, before the step's own update runs. */
+  private refreshAvailability() {
+    const day = this.daylight(this.step)
+    for (const r of this.resources) if (r.status === 'unavailable' && this.step >= r.availableFromStep) r.status = isAir(r.kind) && !day ? 'grounded' : 'idle'
   }
 
   private addResource(id: string, name: string, kind: ResourceKind, base: LatLon, availableFromStep: number) {
@@ -672,6 +686,7 @@ export class ResponseRun {
   // ---------------------------------------------------------------- context for the commander
 
   context(trigger: string): CommanderContext {
+    this.refreshAvailability()
     const s = this.step
     const res = this.st.result(this.settlements)
     this.hazards = new Map(buildHazards(res, this.infra).map((h) => [h.edge.id, h]))
@@ -775,8 +790,9 @@ export class ResponseRun {
 
   // ---------------------------------------------------------------- applying decisions
 
-  apply(output: CommanderOutput, source: 'ai' | 'rules', trigger: string, fallbackReason?: string) {
+  apply(output: CommanderOutput, source: 'ai' | 'rules' | 'human', trigger: string, fallbackReason?: string) {
     const s = this.step
+    this.refreshAvailability()
     const applied: string[] = []
     const w = weatherAt(this.config, s * STEP_MIN)
     this.lastWind = { speed: w.windSpeedKmh, from: w.windFromDeg }
@@ -1044,6 +1060,18 @@ export class ResponseRun {
 
   /** The same fire with no response, filled in by finish(). */
   baselineResult: SimResult | null = null
+
+  /** Safety line candidates of the current decision point (A ~2 h, B ~5 h ahead, C drawn by the user). */
+  get lineCandidates(): { id: 'A' | 'B' | 'C'; hoursAhead: number; cells: number[] }[] {
+    return this.candidates.map((c) => ({ id: c.id, hoursAhead: c.hoursAhead, cells: c.cells }))
+  }
+
+  /** A safety line drawn by hand: offered as candidate "C" at this decision point. */
+  setCustomLine(cells: number[]) {
+    this.candidates = this.candidates.filter((c) => c.id !== 'C')
+    const ok = cells.filter((c) => this.grid.kind[c] !== 0 && this.st.ig[c] === -1)
+    if (ok.length) this.candidates.push({ id: 'C', hoursAhead: 0, cells: ok })
+  }
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10
