@@ -1,6 +1,7 @@
 import { compass, fmtDuration, haversineM, type LatLon } from './geo'
 import { cellCenter, cellOf } from './terrain'
 import { regionById } from '../data/regions'
+import { towerSeeing } from './existing'
 import type { Infrastructure } from '../data/infrastructure'
 import type { RunOptions } from './response'
 import type { SimResult } from './types'
@@ -223,7 +224,8 @@ export function buildCandidates(res: SimResult, infra: Infrastructure, wide = fa
   // 4. lookout tower on the highest point near the burned area: earlier detection
   let best = -1
   for (let i = 0; i < ig.length; i++) if (kind[i] !== 0 && burnedNear(i, 12) && (best < 0 || elev[i] > elev[best])) best = i
-  if (best >= 0)
+  // no new tower where an existing one already sees the fire
+  if (best >= 0 && (res.config.ignoreExisting || !towerSeeing(g.areaId, cellCenter(g, o))))
     out.push({
       id: 'kule-1',
       type: 'gozetleme',

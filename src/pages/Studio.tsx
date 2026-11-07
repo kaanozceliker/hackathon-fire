@@ -8,6 +8,8 @@ import { Timeline } from '../components/Timeline'
 import { Legend, Panel, Segmented, SliderField, Stat, fmtHa } from '../components/ui'
 import { icons } from '../components/mapIcons'
 import { SurroundingsPanel, TreeCoverOverlay, surroundings } from '../components/IgnitionSurroundings'
+import { EXISTING_LEGEND, ExistingOverlay } from '../components/ExistingOverlay'
+import { simYear } from '../sim/existing'
 import { ARRIVAL_LEGEND, type FireMode } from '../components/FireCanvasLayer'
 import { REGIONS, regionById, defaultConfig } from '../data/regions'
 import { getGrid } from '../sim/gridCache'
@@ -52,7 +54,8 @@ export function Studio() {
   const [showWind, setShowWind] = useState(true)
   const [showSmoke, setShowSmoke] = useState(true)
   const [showTrees, setShowTrees] = useState(false)
-  const around = useMemo(() => surroundings(grid, draft.ignition), [grid, draft.ignition])
+  const around = useMemo(() => surroundings(grid, draft.ignition, simYear(draft)), [grid, draft])
+  const [showExisting, setShowExisting] = useState(false)
   const smoke = useMemo(() => (matches ? computeSmoke(res) : null), [res, matches])
   const smokeExp = useMemo(() => (smoke ? exposures(smoke) : null), [smoke])
   useEffect(() => {
@@ -196,6 +199,10 @@ export function Studio() {
               <Segmented<TerrainType> label="Arazi koşulları" value={draft.terrain} onChange={(v) => patchDraft({ terrain: v })} options={[{ value: 'coastal-plain', label: 'Düz' }, { value: 'rolling-hills', label: 'Tepelik' }, { value: 'steep-mountain', label: 'Dik' }]} />
               <div className="mt-1 text-[11px] text-muted">Eğimin yokuş yukarı yayılımı ne kadar hızlandırdığını ayarlar.</div>
             </div>
+            <label className="flex cursor-pointer items-start gap-2 text-[12.5px]">
+              <input type="checkbox" checked={!draft.ignoreExisting} onChange={(e) => patchDraft({ ignoreExisting: e.target.checked ? undefined : true })} className="mt-0.5 h-4 w-4 accent-[#3fa564]" />
+              <span>Mevcut önlemleri hesaba kat<span className="block text-[11px] text-muted">Yollar ve emniyet şeritleri yakıt kesintisi, son yıllardaki yanık alanlar az yakıt, kuleler erken tespit, havuzlar su noktası olur.</span></span>
+            </label>
             <SliderField label="Bitki örtüsü yoğunluğu" value={Math.round(draft.fuelLoad * 100)} min={60} max={140} step={5} unit="%" onChange={(v) => patchDraft({ fuelLoad: v / 100 })} hint="Her orman hücresindeki kullanılabilir yakıtı ölçekler" />
           </div>
         </Panel>
@@ -222,7 +229,7 @@ export function Studio() {
           onMapClick={onMapClick}
           smoke={matches && showSmoke ? { result: res, step } : null}
           wind={showWind ? { config: matches ? res.config : draft, minutes: matches ? stat.minutes : 0 } : null}
-          legend={matches && showSmoke ? <div className="space-y-2">{legend}<Legend title="Duman, yer seviyesi PM2.5" items={[{ color: 'rgba(200,195,188,.45)', label: 'Pus, 10–35 µg/m³' }, { color: 'rgba(160,150,140,.7)', label: 'Yoğun, 55–225 µg/m³' }, { color: 'rgba(110,95,86,.88)', label: 'Çok yoğun, 225+ µg/m³' }]} /></div> : legend}
+          legend={showExisting ? <div className="space-y-2">{legend}<Legend title="Mevcut önlemler" items={EXISTING_LEGEND} /></div> : matches && showSmoke ? <div className="space-y-2">{legend}<Legend title="Duman, yer seviyesi PM2.5" items={[{ color: 'rgba(200,195,188,.45)', label: 'Pus, 10–35 µg/m³' }, { color: 'rgba(160,150,140,.7)', label: 'Yoğun, 55–225 µg/m³' }, { color: 'rgba(110,95,86,.88)', label: 'Çok yoğun, 225+ µg/m³' }]} /></div> : legend}
           controls={
             <div className="space-y-2">
               <div className="flex border border-line2 bg-bg/90 text-[12px]" role="radiogroup" aria-label="Harita katmanı">
@@ -235,6 +242,7 @@ export function Studio() {
                 <span>{Math.round(matches ? now.windSpeedKmh : draft.windSpeedKmh)} km/sa, {compass(matches ? now.windFromDeg : draft.windFromDeg)} yönünden</span>
                 <button onClick={() => setShowWind(!showWind)} aria-pressed={showWind} className={`ml-1 border-l border-line2 pl-2 font-medium ${showWind ? 'text-forest' : 'text-muted hover:text-ink'}`}>Akış</button>
                 <button onClick={() => setShowSmoke(!showSmoke)} aria-pressed={showSmoke} disabled={!matches} className={`border-l border-line2 pl-2 font-medium disabled:opacity-40 ${showSmoke ? 'text-forest' : 'text-muted hover:text-ink'}`}>Duman</button>
+                <button onClick={() => setShowExisting(!showExisting)} aria-pressed={showExisting} className={`border-l border-line2 pl-2 font-medium ${showExisting ? 'text-forest' : 'text-muted hover:text-ink'}`}>Mevcut önlemler</button>
               </div>
             </div>
           }
@@ -245,6 +253,7 @@ export function Studio() {
               <Tooltip direction="right" permanent offset={[8, 0]} className="fg-label">{st.name}</Tooltip>
             </Marker>
           ))}
+          {showExisting && <ExistingOverlay grid={grid} year={simYear(draft)} />}
           {showTrees && <TreeCoverOverlay grid={grid} s={around} at={draft.ignition} />}
           <Marker position={draft.ignition} icon={icons.ignition}>
             <Tooltip direction="top" offset={[0, -12]}>Tutuşma noktası</Tooltip>

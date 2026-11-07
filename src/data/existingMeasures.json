@@ -1,0 +1,93 @@
+{
+  "_aciklama": "Mevcut yangın önlemleri: OpenStreetMap'te olmayanları buraya ekleyin (Orman Genel Müdürlüğü / bölge müdürlüğü kayıtları, saha bilgisi). Her kayıt simülasyonda baştan uygulanır. Konum [enlem, boylam]. towers: gözetleme kulesi veya yangın kamerası (görüş yarıçapı km, varsayılan 15) -> yangın 20 dk erken fark edilir. ponds: yangın havuzu / gölet / su deposu -> helikopter ve arazöz dolum noktası. firebreaks: yangın emniyet yolu veya şeridi, çizgi olarak (widthM metre) -> şeritte yakıt azalır. bases: yaz ön konuşlanma noktası (crews arazöz, dozers iş makinesi) -> müdahale başlar başlamaz buradan çıkar. source alanına kaynağı yazın.",
+  "_ornek": {
+    "towers": [
+      {
+        "name": "Örnek Tepe yangın gözetleme kulesi",
+        "pos": [
+          36.85,
+          28.2
+        ],
+        "rangeKm": 15,
+        "source": "OGM Muğla BM, 2025"
+      }
+    ],
+    "ponds": [
+      {
+        "name": "Örnek yangın havuzu",
+        "pos": [
+          36.86,
+          28.21
+        ],
+        "source": "saha"
+      }
+    ],
+    "firebreaks": [
+      {
+        "name": "Örnek emniyet yolu",
+        "path": [
+          [
+            36.85,
+            28.18
+          ],
+          [
+            36.87,
+            28.22
+          ]
+        ],
+        "widthM": 30,
+        "source": "OGM"
+      }
+    ],
+    "bases": [
+      {
+        "name": "Örnek ön konuşlanma",
+        "pos": [
+          36.86,
+          28.19
+        ],
+        "crews": 2,
+        "dozers": 1,
+        "source": "OGM yaz planı"
+      }
+    ]
+  },
+  "regions": {
+    "mugla": {
+      "towers": [],
+      "ponds": [],
+      "firebreaks": [],
+      "bases": []
+    },
+    "izmir": {
+      "towers": [],
+      "ponds": [],
+      "firebreaks": [],
+      "bases": []
+    },
+    "antalya": {
+      "towers": [],
+      "ponds": [],
+      "firebreaks": [],
+      "bases": []
+    },
+    "canakkale": {
+      "towers": [],
+      "ponds": [],
+      "firebreaks": [],
+      "bases": []
+    },
+    "balikesir": {
+      "towers": [],
+      "ponds": [],
+      "firebreaks": [],
+      "bases": []
+    },
+    "menderes": {
+      "towers": [],
+      "ponds": [],
+      "firebreaks": [],
+      "bases": []
+    }
+  }
+}

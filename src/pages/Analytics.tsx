@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend as RLegend, Line, LineChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
-import { Download, FileText, Loader2, Printer, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
-import { SEVERITY_LABEL, type AiReportState } from '../lib/aiReport'
+import { Download, FileText, Loader2, Printer, Trash2 } from 'lucide-react'
+import { AiReportView } from '../components/AiReportView'
 import { downloadReportPdf } from '../lib/pdfReport'
 import { MapStage } from '../components/MapStage'
 import { Panel, Segmented, fmtHa } from '../components/ui'
@@ -238,7 +238,9 @@ export function Analytics() {
           </div>
         }
       >
-        <AiReportBlock state={aiState} preset={reportSc.preset} onAsk={() => requestAiReport(reportSc.id, true)} />
+        <AiReportView state={aiState} preset={reportSc.preset} onAsk={() => requestAiReport(reportSc.id, true)} res={reportSc.result} />
+        <details open={!ai} className="group">
+        <summary className="mb-3 cursor-pointer select-none text-[13px] font-semibold text-muted hover:text-ink">{ai ? 'Ayrıntılı metin raporu (kural tabanlı)' : 'Metin raporu'}</summary>
         <div className="grid gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
           {sections.map((s) => (
             <section key={s.title}>
@@ -249,62 +251,9 @@ export function Analytics() {
             </section>
           ))}
         </div>
+        </details>
       </Panel>
     </div>
   )
 }
 
-const SEV_COLOR = { yuksek: 'text-fire border-fire/50', orta: 'text-amber border-amber/50', dusuk: 'text-muted border-line2' } as const
-
-/** The AI's end-of-run assessment above the rule-based sections. */
-function AiReportBlock({ state, preset, onAsk }: { state?: AiReportState; preset: boolean; onAsk: () => void }) {
-  if (!state)
-    return (
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border border-line2 bg-bg px-3 py-2.5 text-[13px]">
-        <span className="text-muted">{preset ? 'Hazır örnek senaryo: yapay zeka raporu kendiliğinden istenmez.' : 'Yapay zeka raporu henüz istenmedi.'}</span>
-        <button onClick={onAsk} className="flex items-center gap-1.5 border border-forest/60 px-2 py-1 text-[12px] font-semibold text-forest hover:bg-forest-dim/40"><Sparkles size={13} /> Yapay zeka raporu oluştur</button>
-      </div>
-    )
-  if (state.status === 'loading')
-    return <div className="mb-4 flex items-center gap-2 border border-line2 bg-bg px-3 py-2.5 text-[13px] text-muted"><Loader2 size={14} className="animate-spin text-forest" /> Yapay zeka raporu hazırlanıyor…</div>
-  if (state.status === 'error' || !state.report)
-    return (
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border border-amber/50 bg-bg px-3 py-2.5 text-[13px] text-amber">
-        <span>Yapay zeka raporu alınamadı: {state.error}. Aşağıdaki kural tabanlı rapor geçerli.</span>
-        <button onClick={onAsk} className="flex items-center gap-1.5 border border-line2 px-2 py-1 text-[12px] text-ink hover:text-forest"><RotateCcw size={13} /> Tekrar dene</button>
-      </div>
-    )
-  const r = state.report
-  return (
-    <section className="mb-5 border border-forest/40 bg-bg p-3">
-      <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h4 className="flex items-center gap-1.5 text-[14px] font-semibold text-forest"><Sparkles size={15} /> Yapay zeka değerlendirmesi</h4>
-        <span className="text-[11px] text-muted">{state.model}{state.cached ? ' · önbellekten' : ''}</span>
-      </header>
-      <p className="text-[13.5px] leading-relaxed">{r.executive_summary}</p>
-      <div className="mt-3 grid gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
-        <div>
-          <h5 className="mb-1.5 border-b border-line pb-1 text-[13px] font-semibold">Temel bulgular</h5>
-          <ul className="list-disc space-y-1.5 pl-4 text-[13px] leading-snug">{r.key_findings.map((l, i) => <li key={i}>{l}</li>)}</ul>
-        </div>
-        <div>
-          <h5 className="mb-1.5 border-b border-line pb-1 text-[13px] font-semibold">Riskler</h5>
-          <ul className="space-y-2 text-[13px] leading-snug">
-            {r.risks.map((x, i) => (
-              <li key={i}>
-                <span className={`mr-1.5 border px-1 text-[10.5px] font-semibold uppercase ${SEV_COLOR[x.severity]}`}>{SEVERITY_LABEL[x.severity]}</span>
-                <b>{x.title}</b>: {x.detail}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h5 className="mb-1.5 border-b border-line pb-1 text-[13px] font-semibold">Öneriler</h5>
-          <ol className="list-decimal space-y-1.5 pl-4 text-[13px] leading-snug">{r.recommendations.map((x, i) => <li key={i}><b>{x.action}</b> <span className="text-muted">({x.when})</span>: {x.rationale}</li>)}</ol>
-        </div>
-      </div>
-      <blockquote className="mt-3 border-l-2 border-forest/60 pl-3 text-[13px] italic">{r.public_message}</blockquote>
-      <p className="mt-2 text-[11.5px] text-muted">{r.caveats}</p>
-    </section>
-  )
-}

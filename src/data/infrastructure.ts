@@ -1,5 +1,6 @@
 import type { LatLon } from '../sim/geo'
-import { polylineLengthM } from '../sim/geo'
+import { haversineM, polylineLengthM } from '../sim/geo'
+import { existingFor } from '../sim/existing'
 import { hash3 } from '../sim/rng'
 import type { Region } from './regions'
 import { OSM } from './osm.generated'
@@ -125,6 +126,9 @@ export function getInfrastructure(region: Region): Infrastructure {
   let v = cache.get(region.id)
   if (!v) {
     v = bakedInfrastructure(region.id) ?? proceduralInfrastructure(region)
+    // existing fire ponds and water tanks (OSM, existingMeasures.json) are water points too
+    const ponds = existingFor(region.id).ponds.filter((p) => !v!.water.some((w) => haversineM(w.pos, p.pos) < 150))
+    v = { ...v, water: [...v.water, ...ponds.map((p, i) => ({ id: `mevcut-havuz-${i + 1}`, name: p.name, pos: p.pos, kind: 'pond' as const, note: `Mevcut önlem (${p.source})` }))] }
     cache.set(region.id, v)
   }
   return v

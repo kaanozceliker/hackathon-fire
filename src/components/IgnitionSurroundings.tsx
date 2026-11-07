@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { Circle, ImageOverlay } from 'react-leaflet'
-import { Info, Mountain, ScanLine, Trees } from 'lucide-react'
+import { Droplets, Eye, Flame, Info, Milestone, Mountain, Route, ScanLine, ShieldCheck, Trees } from 'lucide-react'
 import { haversineM, type LatLon } from '../sim/geo'
 import { cellCenter, cellOf, gridBounds } from '../sim/terrain'
 import { speciesById } from '../data/vegetation'
+import { existingFor, lineCells, towerSeeing } from '../sim/existing'
 import type { Grid } from '../sim/types'
 
 /**
@@ -29,9 +30,11 @@ export interface Surroundings {
   treeShare: number
   meanElev: number
   mainSpecies: string | null
+  /** Existing protection: tower that sees the point, ponds within 5 km, fire breaks within 5 km, burn scars and roads within the radius. */
+  existing: { tower: string | null; ponds: number; breakKm: number; scarHa: number; scarYears: number[]; roadPct: number }
 }
 
-export function surroundings(grid: Grid, at: LatLon, radiusM = RADIUS_M): Surroundings {
+export function surroundings(grid: Grid, at: LatLon, year: number, radiusM = RADIUS_M): Surroundings {
   const c0 = cellOf(grid, at[0], at[1])
   const haC = (grid.cellM * grid.cellM) / 10000
   const ha: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 }
@@ -61,8 +64,30 @@ export function surroundings(grid: Grid, at: LatLon, radiusM = RADIUS_M): Surrou
       }
   }
   const totalHa = cells.length * haC
+  const ex = existingFor(grid.areaId)
+  let scar = 0
+  let road = 0
+  const years = new Set<number>()
+  for (const i of cells) {
+    const y = ex.burnYear?.[i] ?? 0
+    if (y && 2000 + y < year) {
+      scar++
+      years.add(2000 + y)
+    }
+    if (ex.roads?.[i]) road++
+  }
+  let breakCells = 0
+  for (const fb of ex.firebreaks) breakCells += lineCells(grid, fb.geom).filter((c) => haversineM(cellCenter(grid, c), at) <= 5000).length
+  const existing = {
+    tower: towerSeeing(grid.areaId, at)?.name ?? null,
+    ponds: ex.ponds.filter((p) => haversineM(p.pos, at) <= 5000).length,
+    breakKm: (breakCells * grid.cellM) / 1000,
+    scarHa: scar * haC,
+    scarYears: [...years].sort(),
+    roadPct: cells.length ? road / cells.length : 0,
+  }
   const top = [...sp.entries()].sort((a, b) => b[1] - a[1])[0]
-  return { cells, ha, totalHa, treeShare: totalHa ? ha[4] / totalHa : 0, meanElev: land ? elev / land : 0, mainSpecies: top ? speciesById(top[0]).name : null }
+  return { cells, ha, totalHa, treeShare: totalHa ? ha[4] / totalHa : 0, meanElev: land ? elev / land : 0, mainSpecies: top ? speciesById(top[0]).name : null, existing }
 }
 
 export function SurroundingsPanel({ s, cellM, showTrees, setShowTrees }: { s: Surroundings; cellM: number; showTrees: boolean; setShowTrees: (v: boolean) => void }) {
@@ -105,9 +130,20 @@ export function SurroundingsPanel({ s, cellM, showTrees, setShowTrees }: { s: Su
         <div className="flex justify-between"><dt className="flex items-center gap-1.5 text-muted"><ScanLine size={14} /> Model hücresi</dt><dd className="font-semibold">{cellM} m</dd></div>
       </dl>
 
+      <div className="border-b border-line py-3">
+        <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold"><ShieldCheck size={14} className="text-forest" /> Mevcut önlemler</div>
+        <dl className="space-y-1.5 text-[12px]">
+          <div className="flex justify-between gap-2"><dt className="flex shrink-0 items-center gap-1.5 text-muted"><Eye size={13} /> Gözetleme kulesi</dt><dd className="text-right font-semibold">{s.existing.tower ?? <span className="font-normal text-muted">görmüyor</span>}</dd></div>
+          <div className="flex justify-between"><dt className="flex items-center gap-1.5 text-muted"><Droplets size={13} /> Yangın havuzu (5 km)</dt><dd className="font-semibold">{s.existing.ponds}</dd></div>
+          <div className="flex justify-between"><dt className="flex items-center gap-1.5 text-muted"><Milestone size={13} /> Emniyet şeridi (5 km)</dt><dd className="font-semibold">{s.existing.breakKm.toFixed(1)} km</dd></div>
+          <div className="flex justify-between"><dt className="flex items-center gap-1.5 text-muted"><Route size={13} /> Yol geçen hücre</dt><dd className="font-semibold">%{Math.round(s.existing.roadPct * 100)}</dd></div>
+          <div className="flex justify-between gap-2"><dt className="flex shrink-0 items-center gap-1.5 text-muted"><Flame size={13} /> Son yıllarda yanmış</dt><dd className="text-right font-semibold">{s.existing.scarHa ? `${s.existing.scarHa.toFixed(0)} ha (${s.existing.scarYears.join(', ')})` : <span className="font-normal text-muted">yok</span>}</dd></div>
+        </dl>
+      </div>
+
       <p className="mt-3 flex gap-1.5 text-[10.5px] leading-snug text-muted">
         <Info size={12} className="mt-px shrink-0" />
-        <span>Her model hücresi, içindeki 10 m'lik WorldCover piksellerinin baskın sınıfını alır. Yükseklik Copernicus DEM'den gelir; komşu hücreler arasındaki yükseklik farkı yayılımı etkiler. Tür tahmini bölge kuşaklarına dayanır, saha envanteri değildir.</span>
+        <span>Her model hücresi, içindeki 10 m'lik WorldCover piksellerinin baskın sınıfını alır. Yükseklik Copernicus DEM'den gelir; komşu hücreler arasındaki yükseklik farkı yayılımı etkiler. Tür tahmini bölge kuşaklarına dayanır, saha envanteri değildir. Mevcut önlemler: yollar, kuleler, havuzlar ve şeritler OpenStreetMap ile src/data/existingMeasures.json'dan, yanık alanlar 2018–2025 Sentinel-2 görüntülerinden.</span>
       </p>
     </section>
   )

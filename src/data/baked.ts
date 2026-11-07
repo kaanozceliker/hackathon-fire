@@ -42,3 +42,12 @@ export interface BakedRegion {
   edges: BakedEdge[]
   water: BakedWater[]
 }
+
+/** Existing fire protection of a region (scripts/bake-existing.ts). */
+export interface BakedExisting {
+  /** Base64, one byte per grid cell: 0 no road, 1 minor road or forest track, 2 secondary, 3 major. */
+  roads: string
+  towers: { name: string; pos: BakedLatLon }[]
+  ponds: { name: string; pos: BakedLatLon; kind: 'pond' | 'tank' }[]
+  firebreaks: { name: string; geom: BakedLatLon[]; widthM: number }[]
+}

@@ -219,11 +219,12 @@ export async function preventionHandler(req: IncomingMessage, res: ServerRespons
 // ---------------------------------------------------------------- end-of-run report
 
 const Report = z.object({
-  executive_summary: z.string().describe('4-6 cümlelik yönetici özeti: ne oldu, ne kadar büyüdü, kimi etkiledi, en önemli sonuç.'),
-  key_findings: z.array(z.string()).describe('3-6 temel bulgu; her biri verideki bir sayıya dayanır.'),
-  risks: z.array(z.object({ title: z.string(), severity: z.enum(['yuksek', 'orta', 'dusuk']), detail: z.string() })).describe('Can, sağlık, altyapı ve doğa açısından en önemli riskler.'),
-  recommendations: z.array(z.object({ action: z.string(), when: z.string().describe('Ne zaman: ör. "hemen", "ilk 6 saat", "yangın sonrası", "önümüzdeki sezon".'), rationale: z.string() })).describe('Öncelik sırasına göre 3-7 öneri.'),
-  public_message: z.string().describe('Yerleşimlerde yaşayanlara yönelik 2-3 cümlelik sade bilgilendirme metni.'),
+  headline: z.string().describe('Tek cümlelik manşet: en önemli sonuç, en fazla 20 kelime.'),
+  executive_summary: z.string().describe('2-3 kısa cümlelik yönetici özeti.'),
+  key_findings: z.array(z.object({ title: z.string().describe('En fazla 5 kelime.'), value: z.string().describe('Kısa sayı ve birim, ör. "5.385 ha", "T+3:40", "%62".'), detail: z.string().describe('Tek kısa cümle, en fazla 15 kelime.') })).describe('3-6 temel bulgu; her biri verideki bir sayıya dayanır.'),
+  risks: z.array(z.object({ title: z.string().describe('En fazla 6 kelime.'), severity: z.enum(['yuksek', 'orta', 'dusuk']), category: z.enum(['can', 'saglik', 'altyapi', 'doga']), detail: z.string().describe('Tek kısa cümle.') })).describe('Can, sağlık, altyapı ve doğa açısından en önemli riskler.'),
+  recommendations: z.array(z.object({ action: z.string().describe('Emir kipinde, en fazla 8 kelime.'), when: z.enum(['hemen', 'ilk_6_saat', 'yangin_suresince', 'yangin_sonrasi', 'gelecek_sezon']), rationale: z.string().describe('Tek kısa cümle.') })).describe('Öncelik sırasına göre 3-7 öneri.'),
+  public_message: z.string().describe('Yerleşimlerde yaşayanlara yönelik 2 cümlelik sade bilgilendirme.'),
   caveats: z.string().describe('Simülasyonun sınırları ve doğrulanması gerekenler.'),
 })
 
@@ -234,6 +235,8 @@ Görevin bu verilerden karar vericiler için kısa ve anlaşılır bir değerlen
 - Verinin söylediğini tekrar etme; önemini ve birbirleriyle ilişkisini açıkla (ör. rüzgar dönüşü hangi yerleşimi tehdit ediyor, duman hangi grubu etkiliyor).
 - Önerileri öncelik sırasıyla, somut ve uygulanabilir yaz.
 - Simülasyonun temsili olduğunu caveats içinde belirt.
+Rapor grafiklerle birlikte gösterilecek: sayıları grafikler zaten gösteriyor, metni kısa tut; uzun paragraf yazma.
+- key_findings, ekranda zaten kutucuklarda duran toplam alan, orman alanı, ulaşılan yerleşim sayısı, en hızlı cephe, CO₂ salımı ve en yüksek PM2.5 değerlerini TEKRAR ETMESİN. Bunun yerine bunlardan çıkan sonuçları ver: hangi yerleşim kaç saatte tehlikeye girdi, rüzgar dönüşünün etkisi, tahliye için kalan süre, en uzun sağlıksız duman süresi, hangi yolun ilk kesildiği gibi.
 Metinler Türkçe, sade ve kısa olsun.`
 
 export async function reportHandler(req: IncomingMessage, res: ServerResponse, next?: () => void) {

@@ -7,11 +7,13 @@ import type { SimResult } from '../sim/types'
  * Answers are cached in localStorage per run, so the same run is never sent twice.
  */
 
+export type RecWhen = 'hemen' | 'ilk_6_saat' | 'yangin_suresince' | 'yangin_sonrasi' | 'gelecek_sezon'
 export interface AiReport {
+  headline: string
   executive_summary: string
-  key_findings: string[]
-  risks: { title: string; severity: 'yuksek' | 'orta' | 'dusuk'; detail: string }[]
-  recommendations: { action: string; when: string; rationale: string }[]
+  key_findings: { title: string; value: string; detail: string }[]
+  risks: { title: string; severity: 'yuksek' | 'orta' | 'dusuk'; category: 'can' | 'saglik' | 'altyapi' | 'doga'; detail: string }[]
+  recommendations: { action: string; when: RecWhen; rationale: string }[]
   public_message: string
   caveats: string
 }
@@ -25,6 +27,9 @@ export interface AiReportState {
 }
 
 export const SEVERITY_LABEL = { yuksek: 'Yüksek', orta: 'Orta', dusuk: 'Düşük' } as const
+export const CATEGORY_LABEL = { can: 'Can güvenliği', saglik: 'Sağlık', altyapi: 'Altyapı', doga: 'Doğa' } as const
+export const WHEN_LABEL: Record<RecWhen, string> = { hemen: 'Hemen', ilk_6_saat: 'İlk 6 saat', yangin_suresince: 'Yangın süresince', yangin_sonrasi: 'Yangın sonrası', gelecek_sezon: 'Gelecek sezon' }
+export const WHEN_ORDER: RecWhen[] = ['hemen', 'ilk_6_saat', 'yangin_suresince', 'yangin_sonrasi', 'gelecek_sezon']
 
 /** Short stable hash of a text (FNV-1a). */
 function hashText(t: string): string {
@@ -37,7 +42,7 @@ function hashText(t: string): string {
 function cacheKey(res: SimResult): string {
   const f = res.series[res.series.length - 1]
   const r = res.response
-  return `fg-ai-report:${hashText(JSON.stringify({ c: res.config, s: res.steps, ha: Math.round(f.affectedHa), d: r?.decisions.length ?? 0, x: r?.extinguishedStep ?? null }))}`
+  return `fg-ai-report-v3:${hashText(JSON.stringify({ c: res.config, s: res.steps, ha: Math.round(f.affectedHa), d: r?.decisions.length ?? 0, x: r?.extinguishedStep ?? null }))}`
 }
 
 function readCache(key: string): { output: AiReport; model?: string } | null {

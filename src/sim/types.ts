@@ -23,6 +23,8 @@ export interface SimConfig {
    * the whole run everywhere.
    */
   weather?: WeatherSeries
+  /** Leave out the protection that already exists (roads, fire breaks, burn scars, towers, ponds); default false. */
+  ignoreExisting?: boolean
 }
 
 export interface WeatherSeries {

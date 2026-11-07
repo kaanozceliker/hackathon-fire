@@ -7,7 +7,7 @@ import { getInfrastructure } from '../data/infrastructure'
 import { regionById } from '../data/regions'
 import { buildResponsePlan } from './planner'
 import type { SimResult } from './types'
-import { SEVERITY_LABEL, type AiReport } from '../lib/aiReport'
+import { SEVERITY_LABEL, WHEN_LABEL, type AiReport } from '../lib/aiReport'
 
 export interface ReportSection {
   title: string
@@ -203,11 +203,13 @@ export function reportMarkdown(name: string, res: SimResult, ai?: { report: AiRe
     ? [
         `## Yapay zeka değerlendirmesi${ai.model ? ` (${ai.model})` : ''}`,
         '',
+        `**${ai.report.headline}**`,
+        '',
         ai.report.executive_summary,
         '',
         '### Temel bulgular',
         '',
-        ...ai.report.key_findings.map((l) => `- ${l}`),
+        ...ai.report.key_findings.map((f) => `- **${f.title}:** ${f.value}. ${f.detail}`),
         '',
         '### Riskler',
         '',
@@ -215,7 +217,7 @@ export function reportMarkdown(name: string, res: SimResult, ai?: { report: AiRe
         '',
         '### Öneriler',
         '',
-        ...ai.report.recommendations.map((r, i) => `${i + 1}. ${r.action} — ${r.when}. ${r.rationale}`),
+        ...ai.report.recommendations.map((r, i) => `${i + 1}. ${r.action} — ${WHEN_LABEL[r.when] ?? r.when}. ${r.rationale}`),
         '',
         '### Halka bilgilendirme',
         '',

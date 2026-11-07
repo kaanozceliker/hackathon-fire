@@ -4,6 +4,7 @@ import { compass, fmtDuration, haversineM, type LatLon } from './geo'
 import { cellCenter, cellOf } from './terrain'
 import { weatherAt } from './weather'
 import { inventoryFor } from '../data/inventory'
+import { DETECTION_GAIN_MIN, existingFor, towerSeeing } from './existing'
 import { startHour } from './smoke'
 import { hash3 } from './rng'
 import type { Infrastructure, NetNode } from '../data/infrastructure'
@@ -175,7 +176,10 @@ export class ResponseRun {
     this.infra = opts.extraWater?.length ? { ...infra, water: [...infra.water, ...opts.extraWater] } : infra
     this.st = new FireStepper(grid, config)
     if (opts.fuelMult) this.st.scaleFuel(opts.fuelMult)
-    this.startStep = Math.max(0, Math.round(responseStartMin / STEP_MIN))
+    // an existing lookout tower or camera that sees the ignition spots the fire earlier
+    const tower = config.ignoreExisting ? null : towerSeeing(grid.areaId, config.ignition)
+    this.startStep = Math.max(0, Math.round((responseStartMin - (tower ? DETECTION_GAIN_MIN : 0)) / STEP_MIN))
+    if (tower) this.events.push({ step: 0, kind: 'arrive', text: `${tower.name} yangını gördü: müdahale ${DETECTION_GAIN_MIN} dk erken başlıyor.` })
     const n = grid.cols * grid.rows
     this.lineResist = new Float32Array(n).fill(1)
     this.wetUntil = new Int16Array(n)
@@ -192,6 +196,12 @@ export class ResponseRun {
     for (let k = 1; k <= inv.helicopters; k++) this.addResource(`heli-${k}`, `Helikopter ${k}`, 'heli', airBase, Math.max(6, this.startStep + Math.round(inv.heliArrivalMin / STEP_MIN)))
     for (let k = 1; k <= inv.planes; k++) this.addResource(`ucak-${k}`, `Söndürme uçağı ${k}`, 'plane', airBase, Math.max(9, this.startStep + Math.round(inv.planeArrivalMin / STEP_MIN)))
     // prevention: a summer pre-positioning base near the forest, staffed from the start of the response
+    // existing summer pre-positioning bases (src/data/existingMeasures.json)
+    if (!config.ignoreExisting)
+      existingFor(grid.areaId).bases.forEach((b, i) => {
+        for (let k = 1; k <= b.crews; k++) this.addResource(`mevcut-${i + 1}-${k}`, `${b.name} arazöz ${k}`, 'crew', b.pos, this.startStep)
+        for (let k = 1; k <= b.dozers; k++) this.addResource(`mevcut-${i + 1}-d${k}`, `${b.name} iş makinesi ${k}`, 'dozer', b.pos, this.startStep)
+      })
     if (opts.extraBase) {
       for (let k = 1; k <= 2; k++) this.addResource(`on-${k}`, `Ön konuşlanma arazöz ${k}`, 'crew', opts.extraBase, this.startStep)
       this.addResource('on-dozer', 'Ön konuşlanma iş makinesi', 'dozer', opts.extraBase, this.startStep)

@@ -3,6 +3,7 @@ import { speciesById } from '../data/vegetation'
 import { cellCenter, cellOf } from './terrain'
 import { haversineM } from './geo'
 import { cellWeather, type CellWeather } from './weather'
+import { existingFuelMult, simYear } from './existing'
 import type { Grid, SettlementImpact, SimConfig, SimResult, Settlement, StepStat } from './types'
 
 /**
@@ -143,6 +144,11 @@ export class FireStepper {
     this.resist = new Float32Array(n).fill(1)
     this.fuel = new Float32Array(n)
     for (let i = 0; i < n; i++) this.fuel[i] = fuelOf(grid, i, config.fuelLoad)
+    // existing protection: roads and fire breaks as partial fuel breaks, less fuel on recent burn scars
+    if (!config.ignoreExisting) {
+      const m = existingFuelMult(grid, simYear(config))
+      for (let i = 0; i < n; i++) this.fuel[i] *= m[i]
+    }
     // initial ignition
     const { cols, rows } = grid
     const ox = this.origin % cols
