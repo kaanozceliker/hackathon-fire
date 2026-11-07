@@ -6,7 +6,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
-import { commanderHandler, preventionHandler, recoveryHandler } from './commander'
+import { commanderHandler, preventionHandler, recoveryHandler, reportHandler } from './commander'
 
 // minimal .env loading (KEY=value lines), without overriding the real environment
 if (existsSync('.env'))
@@ -23,6 +23,7 @@ createServer(async (req, res) => {
   if (req.url?.startsWith('/api/commander')) return commanderHandler(req, res)
   if (req.url?.startsWith('/api/recovery')) return recoveryHandler(req, res)
   if (req.url?.startsWith('/api/prevention')) return preventionHandler(req, res)
+  if (req.url?.startsWith('/api/report')) return reportHandler(req, res)
   const path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0])).replace(/^([/\\])+/, '')
   const file = join(ROOT, path || 'index.html')
   if (!file.startsWith(ROOT)) {

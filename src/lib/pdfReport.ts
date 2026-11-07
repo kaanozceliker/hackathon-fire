@@ -5,6 +5,7 @@ import { aqiOf, computeSmoke, exposures } from '../sim/smoke'
 import { STEP_MIN } from '../sim/engine'
 import { fmtDuration } from '../sim/geo'
 import type { SimResult } from '../sim/types'
+import { SEVERITY_LABEL, type AiReport } from './aiReport'
 
 /**
  * Builds the scenario report as a PDF and downloads it. pdfmake and its Roboto font (which covers Turkish letters)
@@ -26,9 +27,9 @@ async function loadPdfMake() {
   return pdfMake
 }
 
-export async function downloadReportPdf(name: string, res: SimResult, fileName: string): Promise<void> {
+export async function downloadReportPdf(name: string, res: SimResult, fileName: string, ai?: { report: AiReport; model?: string }): Promise<void> {
   const pdfMake = await loadPdfMake()
-  await new Promise<void>((resolve) => pdfMake.createPdf(reportPdfDefinition(name, res)).download(fileName, () => resolve()))
+  await new Promise<void>((resolve) => pdfMake.createPdf(reportPdfDefinition(name, res, ai)).download(fileName, () => resolve()))
 }
 
 /** The PDF as bytes (used by the check script). */
@@ -37,7 +38,7 @@ export async function reportPdfBytes(name: string, res: SimResult): Promise<Uint
   return new Promise((resolve) => pdfMake.createPdf(reportPdfDefinition(name, res)).getBuffer((b) => resolve(new Uint8Array(b))))
 }
 
-export function reportPdfDefinition(name: string, res: SimResult): TDocumentDefinitions {
+export function reportPdfDefinition(name: string, res: SimResult, ai?: { report: AiReport; model?: string }): TDocumentDefinitions {
   const c = res.config
   const region = regionById(c.areaId)
   const f = res.series[res.series.length - 1]
@@ -89,6 +90,23 @@ export function reportPdfDefinition(name: string, res: SimResult): TDocumentDefi
     margin: [0, 4, 0, 4],
   }
 
+  const li = (t: string): Content => ({ text: t, margin: [0, 0, 0, 3] })
+  const aiSection: Content[] = ai
+    ? [
+        { text: `Yapay zeka değerlendirmesi${ai.model ? ` (${ai.model})` : ''}`, style: 'h2' },
+        { text: ai.report.executive_summary, margin: [0, 0, 0, 6] },
+        { text: 'Temel bulgular', bold: true, margin: [0, 2, 0, 2] },
+        { ul: ai.report.key_findings.map(li) },
+        { text: 'Riskler', bold: true, margin: [0, 6, 0, 2] },
+        { ul: ai.report.risks.map((r) => li(`${r.title} (${SEVERITY_LABEL[r.severity]}): ${r.detail}`)) },
+        { text: 'Öneriler', bold: true, margin: [0, 6, 0, 2] },
+        { ol: ai.report.recommendations.map((r) => li(`${r.action} — ${r.when}. ${r.rationale}`)) },
+        { text: 'Halka bilgilendirme', bold: true, margin: [0, 6, 0, 2] },
+        { text: ai.report.public_message, italics: true },
+        { text: ai.report.caveats, color: MUTED, fontSize: 8.5, margin: [0, 6, 0, 0] },
+      ]
+    : []
+
   const sections: Content[] = buildReport(name, res).flatMap((s): Content[] => [
     { text: s.title, style: 'h2' },
     { ul: s.lines.map((l) => ({ text: l, margin: [0, 0, 0, 3] as [number, number, number, number] })), margin: [0, 0, 0, 6] },
@@ -115,6 +133,7 @@ export function reportPdfDefinition(name: string, res: SimResult): TDocumentDefi
       summary,
       { text: 'Yerleşimler: yangın ve duman', style: 'h2' },
       settlementTable,
+      ...aiSection,
       { text: `"Sağlıksız": PM2.5 55,5 µg/m³ ve üstünde geçen süre. Adım ${STEP_MIN} dakika.`, color: MUTED, fontSize: 8 },
       ...sections,
       { text: 'Veri kaynakları', style: 'h2' },

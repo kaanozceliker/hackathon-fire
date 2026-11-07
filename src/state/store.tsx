@@ -3,6 +3,7 @@ import { defaultConfig, regionById, REGIONS } from '../data/regions'
 import { runSimulation } from '../sim/engine'
 import { getGrid } from '../sim/gridCache'
 import type { SimConfig, SimResult } from '../sim/types'
+import { getAiReport, type AiReportState } from '../lib/aiReport'
 
 export interface Scenario {
   id: string
@@ -68,6 +69,10 @@ interface Store {
   notify: (m: string) => void
   demoPlayed: boolean
   markDemoPlayed: () => void
+  /** AI end-of-run report per scenario id (requested automatically when a run finishes). */
+  aiReports: Record<string, AiReportState>
+  /** Asks for (or, after an error, asks again for) the AI report of a scenario. */
+  requestAiReport: (id: string, again?: boolean) => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -85,6 +90,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<string | null>(null)
   const [demoPlayed, setDemoPlayed] = useState(false)
   const customCount = useRef(0)
+  const [aiReports, setAiReports] = useState<Record<string, AiReportState>>({})
+  const asked = useRef(new Set<string>())
+  const requestAiReport = useCallback(
+    (id: string, again = false) => {
+      const sc = scenarios.find((x) => x.id === id)
+      if (!sc || (asked.current.has(id) && !again)) return
+      asked.current.add(id)
+      setAiReports((m) => ({ ...m, [id]: { status: 'loading' } }))
+      getAiReport(sc.name, sc.result).then((r) => {
+        setAiReports((m) => ({ ...m, [id]: r }))
+      })
+    },
+    [scenarios],
+  )
+  // every finished run (Stüdyo or Komuta Merkezi) gets its AI report; the built-in examples only on request
+  useEffect(() => {
+    for (const sc of scenarios) if (!sc.preset && !asked.current.has(sc.id)) requestAiReport(sc.id)
+  }, [scenarios, requestAiReport])
 
   const active = scenarios.find((s) => s.id === activeId) ?? scenarios[0]
   const steps = active.result.steps
@@ -217,8 +240,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       notify,
       demoPlayed,
       markDemoPlayed: () => setDemoPlayed(true),
+      aiReports,
+      requestAiReport,
     }),
-    [scenarios, active, setActive, draft, patchDraft, setDraftArea, loadPreset, step, steps, setStep, playing, speed, progress, startSimulation, compareIds, selectedRegionId, toast, notify, demoPlayed, activeId],
+    [scenarios, active, setActive, draft, patchDraft, setDraftArea, loadPreset, step, steps, setStep, playing, speed, progress, startSimulation, compareIds, selectedRegionId, toast, notify, demoPlayed, activeId, aiReports, requestAiReport],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

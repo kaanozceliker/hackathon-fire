@@ -215,3 +215,53 @@ export async function preventionHandler(req: IncomingMessage, res: ServerRespons
     return send(res, 500, { error: (e as Error).message })
   }
 }
+
+// ---------------------------------------------------------------- end-of-run report
+
+const Report = z.object({
+  executive_summary: z.string().describe('4-6 cümlelik yönetici özeti: ne oldu, ne kadar büyüdü, kimi etkiledi, en önemli sonuç.'),
+  key_findings: z.array(z.string()).describe('3-6 temel bulgu; her biri verideki bir sayıya dayanır.'),
+  risks: z.array(z.object({ title: z.string(), severity: z.enum(['yuksek', 'orta', 'dusuk']), detail: z.string() })).describe('Can, sağlık, altyapı ve doğa açısından en önemli riskler.'),
+  recommendations: z.array(z.object({ action: z.string(), when: z.string().describe('Ne zaman: ör. "hemen", "ilk 6 saat", "yangın sonrası", "önümüzdeki sezon".'), rationale: z.string() })).describe('Öncelik sırasına göre 3-7 öneri.'),
+  public_message: z.string().describe('Yerleşimlerde yaşayanlara yönelik 2-3 cümlelik sade bilgilendirme metni.'),
+  caveats: z.string().describe('Simülasyonun sınırları ve doğrulanması gerekenler.'),
+})
+
+const REPORT_SYSTEM = `Sen orman yangını analisti ve afet iletişimi uzmanısın. ForestGuard simülasyonunda (temsili, eğitim ve planlama amaçlı) bir yangın simülasyonu bitti. Sana kural tabanlı raporun bölümleri gelir: senaryo, hava, yangın davranışı, risk altındaki yerleşimler, emisyonlar, dumanın insanlara ve yaban hayatına etkisi, varsa müdahale ve komuta kararları, erişim önerileri.
+
+Görevin bu verilerden karar vericiler için kısa ve anlaşılır bir değerlendirme raporu yazmak:
+- Yalnızca verilen sayıları, adları ve saatleri kullan; uydurma, yuvarlarken anlamı değiştirme.
+- Verinin söylediğini tekrar etme; önemini ve birbirleriyle ilişkisini açıkla (ör. rüzgar dönüşü hangi yerleşimi tehdit ediyor, duman hangi grubu etkiliyor).
+- Önerileri öncelik sırasıyla, somut ve uygulanabilir yaz.
+- Simülasyonun temsili olduğunu caveats içinde belirt.
+Metinler Türkçe, sade ve kısa olsun.`
+
+export async function reportHandler(req: IncomingMessage, res: ServerResponse, next?: () => void) {
+  if (req.method !== 'POST') return next ? next() : send(res, 404, { error: 'not found' })
+  if (!hasKey()) return send(res, 503, { error: 'Sunucuda OPENAI_API_KEY tanımlı değil.' })
+  let body: { context?: unknown }
+  try {
+    body = (await readJson(req)) as { context?: unknown }
+  } catch {
+    return send(res, 400, { error: 'Geçersiz JSON.' })
+  }
+  if (!body.context) return send(res, 400, { error: 'context eksik.' })
+  client ??= new OpenAI()
+  try {
+    const response = await client.responses.parse({
+      model: model(),
+      instructions: REPORT_SYSTEM,
+      input: `Simülasyon raporu verileri:\n${JSON.stringify(body.context, null, 1)}`,
+      reasoning: { effort: 'low' },
+      max_output_tokens: 8000,
+      text: { format: zodTextFormat(Report, 'simulasyon_raporu') },
+    })
+    if (!response.output_parsed) return send(res, 502, { error: `Yanıt şemaya uymadı (durum: ${response.status}).` })
+    return send(res, 200, { output: response.output_parsed, model: model() })
+  } catch (e) {
+    if (e instanceof OpenAI.AuthenticationError) return send(res, 503, { error: 'OpenAI API anahtarı geçersiz.' })
+    if (e instanceof OpenAI.RateLimitError) return send(res, 429, { error: 'OpenAI istek sınırına veya kotaya takıldı.' })
+    if (e instanceof OpenAI.APIError) return send(res, 502, { error: `OpenAI API hatası ${e.status ?? ''}: ${e.message}` })
+    return send(res, 500, { error: (e as Error).message })
+  }
+}

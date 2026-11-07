@@ -7,6 +7,7 @@ import { getInfrastructure } from '../data/infrastructure'
 import { regionById } from '../data/regions'
 import { buildResponsePlan } from './planner'
 import type { SimResult } from './types'
+import { SEVERITY_LABEL, type AiReport } from '../lib/aiReport'
 
 export interface ReportSection {
   title: string
@@ -197,6 +198,32 @@ function smokeSections(res: SimResult): ReportSection[] {
   return [emissions, people, wildlife]
 }
 
-export function reportMarkdown(name: string, res: SimResult): string {
-  return [`# ForestGuard raporu – ${name}`, '', '> Temsili simülasyon. Örnek veriler, canlı gözlem değildir.', '', ...buildReport(name, res).flatMap((s) => [`## ${s.title}`, '', ...s.lines.map((l) => `- ${l}`), ''])].join('\n')
+export function reportMarkdown(name: string, res: SimResult, ai?: { report: AiReport; model?: string }): string {
+  const aiLines = ai
+    ? [
+        `## Yapay zeka değerlendirmesi${ai.model ? ` (${ai.model})` : ''}`,
+        '',
+        ai.report.executive_summary,
+        '',
+        '### Temel bulgular',
+        '',
+        ...ai.report.key_findings.map((l) => `- ${l}`),
+        '',
+        '### Riskler',
+        '',
+        ...ai.report.risks.map((r) => `- **${r.title}** (${SEVERITY_LABEL[r.severity]}): ${r.detail}`),
+        '',
+        '### Öneriler',
+        '',
+        ...ai.report.recommendations.map((r, i) => `${i + 1}. ${r.action} — ${r.when}. ${r.rationale}`),
+        '',
+        '### Halka bilgilendirme',
+        '',
+        `> ${ai.report.public_message}`,
+        '',
+        `_${ai.report.caveats}_`,
+        '',
+      ]
+    : []
+  return [`# ForestGuard raporu – ${name}`, '', '> Temsili simülasyon. Örnek veriler, canlı gözlem değildir.', '', ...aiLines, ...buildReport(name, res).flatMap((s) => [`## ${s.title}`, '', ...s.lines.map((l) => `- ${l}`), ''])].join('\n')
 }
