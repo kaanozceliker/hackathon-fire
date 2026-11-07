@@ -894,11 +894,25 @@ function ResourcesPanel({ rec, step }: { rec: ResponseRecord; step: number }) {
         {rows.map(({ t, p }) => {
           const { Icon, color } = KIND[t.kind]
           const st = STATUS[p?.status ?? 'unavailable']
+          // on a trip: time left to the target; not yet in service: when it will be
+          const mv = activeMove(t.moves, step)
+          const going = mv && (mv.path[0][0] !== mv.path[mv.path.length - 1][0] || mv.path[0][1] !== mv.path[mv.path.length - 1][1])
+          const leftMin = going ? Math.max(1, Math.round((mv!.toStep - step) * 10)) : 0
+          const ready = !p || p.status === 'unavailable' ? t.points.find((x) => x.status !== 'unavailable' && x.step > step) : null
           return (
             <li key={t.id} className="flex items-center gap-2 px-3 py-1.5 text-[12.5px]">
               <Icon size={14} style={{ color }} className="shrink-0" />
               <span className="min-w-0 flex-1 truncate">{t.name}</span>
-              <span className={`shrink-0 ${st.tone}`}>{st.label}</span>
+              {going ? (
+                <span className="shrink-0 text-right leading-tight" title={`Varış T+${fmtDuration(Math.round(mv!.toStep * 10))}`}>
+                  <b className="tabular-nums text-ink">{leftMin} dk</b>
+                  <span className="block text-[10.5px] text-muted">{t.kind === 'heli' || t.kind === 'plane' ? (p?.status === 'dropping' ? 'su seferi' : 'uçuşta') : 'hedefe'}</span>
+                </span>
+              ) : ready ? (
+                <span className="shrink-0 text-right leading-tight text-muted"><span className="tabular-nums">{fmtDuration((ready.step - step) * 10)}</span><span className="block text-[10.5px]">sonra hazır</span></span>
+              ) : (
+                <span className={`shrink-0 ${st.tone}`}>{p?.status === 'unavailable' ? 'görev bekliyor' : st.label}</span>
+              )}
             </li>
           )
         })}
