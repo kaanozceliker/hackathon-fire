@@ -10,6 +10,9 @@ import { icons } from '../components/mapIcons'
 import { SurroundingsPanel, TreeCoverOverlay, surroundings } from '../components/IgnitionSurroundings'
 import { EXISTING_LEGEND, ExistingOverlay } from '../components/ExistingOverlay'
 import { simYear } from '../sim/existing'
+import { LandAutoInfo } from '../components/LandAutoInfo'
+import { autoTerrain, fuelFromNdmi, fuelState, liveCover, liveCoverShare, seasonalFuel } from '../sim/landAuto'
+import { fuelOf } from '../sim/engine'
 import { ARRIVAL_LEGEND, type FireMode } from '../components/FireCanvasLayer'
 import { REGIONS, regionById, defaultConfig } from '../data/regions'
 import { getGrid } from '../sim/gridCache'
@@ -56,6 +59,36 @@ export function Studio() {
   const [showTrees, setShowTrees] = useState(false)
   const around = useMemo(() => surroundings(grid, draft.ignition, simYear(draft)), [grid, draft])
   const [showExisting, setShowExisting] = useState(false)
+  // "Arazi ve yakıt" from data: slope from the DEM, fuel dryness from the latest Sentinel-2 pass (null = set by hand)
+  const [landMode, setLandMode] = useState<'auto' | 'manual'>(() => (draft.landAuto === null ? 'manual' : 'auto'))
+  const [landBusy, setLandBusy] = useState(false)
+  const fireDate = draft.weather?.startIso ?? new Date().toISOString().slice(0, 10)
+  // share of vegetation at the ignition cell on the latest satellite pass (null = unknown)
+  const originVeg = useMemo(() => {
+    const cov = draft.landAuto?.cover
+    if (!cov) return null
+    const share = liveCoverShare(cov.b64, grid.cols * grid.rows)
+    const c = cellOf(grid, draft.ignition[0], draft.ignition[1])
+    return share && c >= 0 && share[c] !== 255 ? share[c] / 254 : null
+  }, [draft.landAuto, draft.ignition, grid])
+  useEffect(() => {
+    if (landMode !== 'auto') return
+    const t = autoTerrain(grid, draft.ignition)
+    let alive = true
+    setLandBusy(true)
+    const timer = window.setTimeout(() => {
+      Promise.all([fuelState(draft.ignition, fireDate), liveCover(grid, fireDate)]).then(([fuel, cover]) => {
+        if (!alive) return
+        const f = 'ndmi' in fuel ? fuelFromNdmi(fuel.ndmi) : seasonalFuel(Number(fireDate.slice(5, 7)))
+        patchDraft({ terrain: t.terrain, fuelLoad: Math.round(f * 20) / 20, landAuto: { terrain: { meanSlopePct: t.meanSlopePct, steepPct: t.steepPct }, fuel, cover } })
+        setLandBusy(false)
+      })
+    }, 350)
+    return () => {
+      alive = false
+      window.clearTimeout(timer)
+    }
+  }, [landMode, grid, draft.ignition, fireDate, patchDraft])
   const smoke = useMemo(() => (matches ? computeSmoke(res) : null), [res, matches])
   const smokeExp = useMemo(() => (smoke ? exposures(smoke) : null), [smoke])
   useEffect(() => {
@@ -92,6 +125,7 @@ export function Studio() {
     const c = cellOf(grid, lat, lon)
     if (c < 0) return notify(`Tutuşma noktası seçili orman alanının (${region.name}) içinde olmalı.`)
     if (grid.kind[c] === 0) return notify('Bu nokta açık su. Karada bir nokta seçin.')
+    if (fuelOf(grid, c, 1) === 0) notify('Bu nokta neredeyse çıplak toprak: yangın burada tutunamayabilir.')
     patchDraft({ ignition: [lat, lon] })
   }
 
@@ -192,18 +226,24 @@ export function Studio() {
           </div>
         </Panel>
 
-        <Panel title="Arazi ve yakıt">
+        <Panel title="Arazi ve yakıt" action={<Segmented<'auto' | 'manual'> label="Arazi ve yakıt kaynağı" value={landMode} onChange={(v) => { setLandMode(v); if (v === 'manual') patchDraft({ landAuto: null }) }} options={[{ value: 'auto', label: 'Otomatik' }, { value: 'manual', label: 'Elle' }]} />}>
           <div className="space-y-2.5">
-            <div>
-              <div className="mb-1 text-[12px] text-muted">Arazi koşulları</div>
-              <Segmented<TerrainType> label="Arazi koşulları" value={draft.terrain} onChange={(v) => patchDraft({ terrain: v })} options={[{ value: 'coastal-plain', label: 'Düz' }, { value: 'rolling-hills', label: 'Tepelik' }, { value: 'steep-mountain', label: 'Dik' }]} />
-              <div className="mt-1 text-[11px] text-muted">Eğimin yokuş yukarı yayılımı ne kadar hızlandırdığını ayarlar.</div>
-            </div>
+            {landMode === 'auto' ? (
+              <LandAutoInfo terrain={draft.terrain} fuelLoad={draft.fuelLoad} auto={draft.landAuto ?? null} busy={landBusy} originVeg={originVeg} />
+            ) : (
+              <>
+                <div>
+                  <div className="mb-1 text-[12px] text-muted">Arazi koşulları</div>
+                  <Segmented<TerrainType> label="Arazi koşulları" value={draft.terrain} onChange={(v) => patchDraft({ terrain: v })} options={[{ value: 'coastal-plain', label: 'Düz' }, { value: 'rolling-hills', label: 'Tepelik' }, { value: 'steep-mountain', label: 'Dik' }]} />
+                  <div className="mt-1 text-[11px] text-muted">Eğimin yokuş yukarı yayılımı ne kadar hızlandırdığını ayarlar.</div>
+                </div>
+                <SliderField label="Bitki örtüsü yoğunluğu" value={Math.round(draft.fuelLoad * 100)} min={60} max={140} step={5} unit="%" onChange={(v) => patchDraft({ fuelLoad: v / 100 })} hint="Her orman hücresindeki kullanılabilir yakıtı ölçekler" />
+              </>
+            )}
             <label className="flex cursor-pointer items-start gap-2 text-[12.5px]">
               <input type="checkbox" checked={!draft.ignoreExisting} onChange={(e) => patchDraft({ ignoreExisting: e.target.checked ? undefined : true })} className="mt-0.5 h-4 w-4 accent-[#3fa564]" />
               <span>Mevcut önlemleri hesaba kat<span className="block text-[11px] text-muted">Yollar ve emniyet şeritleri yakıt kesintisi, son yıllardaki yanık alanlar az yakıt, kuleler erken tespit, havuzlar su noktası olur.</span></span>
             </label>
-            <SliderField label="Bitki örtüsü yoğunluğu" value={Math.round(draft.fuelLoad * 100)} min={60} max={140} step={5} unit="%" onChange={(v) => patchDraft({ fuelLoad: v / 100 })} hint="Her orman hücresindeki kullanılabilir yakıtı ölçekler" />
           </div>
         </Panel>
 

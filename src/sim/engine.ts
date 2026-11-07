@@ -4,6 +4,7 @@ import { cellCenter, cellOf } from './terrain'
 import { haversineM } from './geo'
 import { cellWeather, type CellWeather } from './weather'
 import { existingFuelMult, simYear } from './existing'
+import { liveCoverShare } from './landAuto'
 import type { Grid, SettlementImpact, SimConfig, SimResult, Settlement, StepStat } from './types'
 
 /**
@@ -43,14 +44,16 @@ export function fuelOf(grid: Grid, i: number, fuelLoad: number): number {
   if (k === 1) return 0.05
   // species: resinous pine and maquis carry fire more readily than oak, fir or sweetgum
   const sp = grid.species?.[i] ? speciesById(grid.species[i]).flammability : 1
-  return clamp(grid.veg[i] * fuelLoad * 1.15 * sp, 0.05, 1)
+  const f = grid.veg[i] * fuelLoad * 1.15 * sp
+  // bare ground, rock and sand carry no fire
+  return f < 0.04 ? 0 : Math.min(1, f)
 }
 
 /** How strongly a burning cell pushes fire into its neighbours. Burning built-up cells barely propagate. */
 const SOURCE_STRENGTH = [0, 0.2, 1, 1, 1]
 
-/** Steps a cell keeps burning: forest fuel smoulders for up to ~2 h, built-up cells burn out quickly. */
-const burnSteps = (fuel: number, kind: number) => (kind === 1 ? 2 : Math.round(3 + 9 * Math.max(fuel, 0.3)))
+/** Steps a cell keeps burning: forest fuel smoulders for up to ~2 h, thin grass and built-up cells burn out quickly. */
+const burnSteps = (fuel: number, kind: number) => (kind === 1 ? 2 : Math.max(1, Math.round(1 + 11 * fuel)))
 
 export function seedFor(config: SimConfig): number {
   // Seed depends only on area + ignition so changing weather keeps the same "random" luck → clean what-if comparisons.
@@ -149,6 +152,17 @@ export class FireStepper {
       const m = existingFuelMult(grid, simYear(config))
       for (let i = 0; i < n; i++) this.fuel[i] *= m[i]
     }
+    // current vegetation from the latest satellite pass: bare ground found there carries no fire
+    const live = config.landAuto?.cover ? liveCoverShare(config.landAuto.cover.b64, n) : null
+    if (live)
+      for (let i = 0; i < n; i++) {
+        const v = live[i]
+        if (v === 255) continue // no clear data for this cell
+        // dry summer grass and stubble also read as "not vegetated" from space but still carry a light fire
+        const share = Math.min(1, (v / 254) * 1.15)
+        const f = this.fuel[i] * (grid.kind[i] === 2 ? Math.max(0.3, share) : share)
+        this.fuel[i] = f < 0.04 ? 0 : f
+      }
     // initial ignition
     const { cols, rows } = grid
     const ox = this.origin % cols
@@ -160,7 +174,7 @@ export class FireStepper {
         const y = oy + dy
         if (x < 0 || y < 0 || x >= cols || y >= rows) continue
         const i = y * cols + x
-        if (grid.kind[i] === 0 || this.ig[i] !== -1) continue
+        if (grid.kind[i] === 0 || this.fuel[i] <= 0 || this.ig[i] !== -1) continue
         this.ig[i] = 0
         this.burnout[i] = burnSteps(this.fuel[i], grid.kind[i])
         this.burning.push(i)
@@ -231,7 +245,8 @@ export class FireStepper {
       if (burnout[c] > s + 1) stillBurning.push(c)
       const cx = c % cols
       const cy = (c / cols) | 0
-      const src = SOURCE_STRENGTH[grid.kind[c]]
+      // a cell with little fuel gives off little heat and can hardly ignite its neighbours
+      const src = SOURCE_STRENGTH[grid.kind[c]] * (grid.kind[c] >= 2 ? clamp(fuel[c] / 0.25, 0.1, 1) : 1)
       for (let k = 0; k < 8; k++) {
         const x = cx + NEIGHBOURS[k][0]
         const y = cy + NEIGHBOURS[k][1]
@@ -253,7 +268,7 @@ export class FireStepper {
       // smouldering cells, sparse grass and cells being cooled by the response do not loft embers
       const flaming = s - ig[c] <= Math.max(1, (burnout[c] - ig[c]) / 3)
       const spotP = this.spotRate[c] * fuel[c] * resist[c]
-      if (spotP > 0 && src === 1 && grid.kind[c] >= 3 && flaming && fuel[c] >= 0.35 && hash3(seed + 1, c, s) < spotP) {
+      if (spotP > 0 && src >= 1 && grid.kind[c] >= 3 && flaming && fuel[c] >= 0.35 && hash3(seed + 1, c, s) < spotP) {
         const d = 3 + Math.floor(hash3(seed + 2, c, s) * (this.wx.windSpeedKmh[c] / 3.5))
         const spotDx = Math.sin(this.wx.windToRad[c])
         const spotDy = -Math.cos(this.wx.windToRad[c])

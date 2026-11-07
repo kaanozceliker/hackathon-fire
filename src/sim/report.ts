@@ -45,6 +45,11 @@ export function buildReport(name: string, res: SimResult): ReportSection[] {
           `Rüzgar ${c.windSpeedKmh} km/sa, ${compass(c.windFromDeg)} yönünden (${c.windFromDeg}°); yangını ${compass(c.windFromDeg + 180)} yönüne itiyor.`,
         ]),
         `Arazi: ${terrain}; bitki örtüsü yoğunluğu örnek referansın %${Math.round(c.fuelLoad * 100)} kadarı.`,
+        ...(c.landAuto
+          ? [
+              `Arazi ve yakıt otomatik belirlendi: 3 km içinde ortalama eğim %${Math.round(c.landAuto.terrain.meanSlopePct)} (Copernicus DEM); ${'ndmi' in c.landAuto.fuel ? `bitki nem indeksi NDMI ${c.landAuto.fuel.ndmi.toFixed(2)} (Sentinel-2, ${c.landAuto.fuel.date})` : `uydu verisi alınamadı, ayın tipik kuruluğu kullanıldı`}.`,
+            ]
+          : []),
       ],
     },
     {

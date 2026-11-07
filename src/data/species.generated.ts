@@ -573,5 +573,139 @@ export const SPECIES: Record<string, BakedSpeciesRegion> = {
     ]
    }
   ]
+ },
+ "menderes": {
+  "classes": [
+   {
+    "key": "mammal",
+    "species": 15,
+    "records": 60,
+    "top": [
+     {
+      "scientific": "Bransatoglis sjeni",
+      "name": null,
+      "iucn": "NE",
+      "records": 5
+     },
+     {
+      "scientific": "Pseudocricetodon moguntiacus",
+      "name": null,
+      "iucn": "NE",
+      "records": 5
+     },
+     {
+      "scientific": "Kerosinia variabilis",
+      "name": null,
+      "iucn": "NE",
+      "records": 5
+     },
+     {
+      "scientific": "Paracricetodon dehmi",
+      "name": null,
+      "iucn": "NE",
+      "records": 4
+     },
+     {
+      "scientific": "Pseudocricetodon philippi",
+      "name": null,
+      "iucn": "NE",
+      "records": 4
+     }
+    ]
+   },
+   {
+    "key": "bird",
+    "species": 124,
+    "records": 787,
+    "top": [
+     {
+      "scientific": "Passer domesticus",
+      "name": "Bayağı Serçe",
+      "iucn": "LC",
+      "records": 47
+     },
+     {
+      "scientific": "Carduelis carduelis",
+      "name": "Saka Kuşu",
+      "iucn": "LC",
+      "records": 33
+     },
+     {
+      "scientific": "Hirundo rustica",
+      "name": "kir kirlangici",
+      "iucn": "LC",
+      "records": 33
+     },
+     {
+      "scientific": "Larus michahellis",
+      "name": "Gümüş Martı",
+      "iucn": "LC",
+      "records": 32
+     },
+     {
+      "scientific": "Corvus cornix",
+      "name": "Başlıklı karga",
+      "iucn": "NE",
+      "records": 30
+     }
+    ]
+   },
+   {
+    "key": "reptile",
+    "species": 7,
+    "records": 10,
+    "top": [
+     {
+      "scientific": "Ophisops elegans",
+      "name": "Tarla Kertenkelesi",
+      "iucn": "LC",
+      "records": 3
+     },
+     {
+      "scientific": "Mauremys rivulata",
+      "name": "Balkan Çizgili Kaplumbağası",
+      "iucn": "NE",
+      "records": 2
+     },
+     {
+      "scientific": "Testudo graeca",
+      "name": "Mahmuzlu Akdeniz Kaplumbağası",
+      "iucn": "VU",
+      "records": 1
+     },
+     {
+      "scientific": "Montivipera xanthina",
+      "name": "Şeritli Engerek",
+      "iucn": "LC",
+      "records": 1
+     },
+     {
+      "scientific": "Ablepharus kitaibelii",
+      "name": "İnce Kertenkele",
+      "iucn": "LC",
+      "records": 1
+     }
+    ]
+   },
+   {
+    "key": "amphibian",
+    "species": 2,
+    "records": 3,
+    "top": [
+     {
+      "scientific": "Bufotes viridis",
+      "name": "Avrupalı yeşil karakurbağası",
+      "iucn": "LC",
+      "records": 2
+     },
+     {
+      "scientific": "Pelophylax ridibundus",
+      "name": "Ova Kurbağası",
+      "iucn": "LC",
+      "records": 1
+     }
+    ]
+   }
+  ]
  }
 }

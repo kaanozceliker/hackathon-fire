@@ -25,6 +25,8 @@ export interface SimConfig {
   weather?: WeatherSeries
   /** Leave out the protection that already exists (roads, fire breaks, burn scars, towers, ponds); default false. */
   ignoreExisting?: boolean
+  /** How terrain and fuelLoad were worked out automatically (src/sim/landAuto.ts); null = set by hand. */
+  landAuto?: import('./landAuto').LandAuto | null
 }
 
 export interface WeatherSeries {
