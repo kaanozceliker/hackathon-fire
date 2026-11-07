@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircleMarker, ImageOverlay, Marker, Polyline, Tooltip } from 'react-leaflet'
+import { ImageOverlay, Marker, Polyline, Tooltip } from 'react-leaflet'
 import L from 'leaflet'
 import { ArrowLeft, Bot, Check, Flame, Loader2, Pause, PenLine, Play, RotateCcw, Siren, Undo2, User, X } from 'lucide-react'
 import { MapStage } from '../../components/MapStage'
@@ -12,6 +12,7 @@ import { fmtDuration, type LatLon } from '../../sim/geo'
 import { SECTORS, type CommanderAction, type Sector, type SimResult } from '../../sim/types'
 import { getGrid, getInfrastructure, judgeResponse, newScenario, regionById, runWithRules, type ResponseVerdict } from '../../sim/drill'
 import { MistakeList, ScoreCard, WeatherChips } from './shared'
+import { UnitsLayer } from '../Command'
 
 type Order = { kind: 'none' } | { kind: 'attack'; sector: Sector } | { kind: 'line'; lineId: string; sector: Sector } | { kind: 'drop'; sector: Sector } | { kind: 'withdraw' }
 const encode = (o: Order) => (o.kind === 'none' ? '' : o.kind === 'withdraw' ? 'withdraw' : o.kind === 'line' ? `line|${o.lineId}|${o.sector}` : `${o.kind}|${o.sector}`)
@@ -142,6 +143,8 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
   const candImgs = useMemo(() => candidates.map((c) => ({ id: c.id, url: cellsImage(grid.cols, grid.rows, c.cells, LINE_COLOR[c.id]) })), [candidates, grid])
   const shown = phase === 'result' && result ? (view === 'you' ? result.you : result.rules) : snap
   const step = shown ? (phase === 'result' ? Math.min(play.step, shown.steps) : shown.steps) : 0
+  const clock = useRef(0)
+  clock.current = step * 10
   const newLineId = ctx?.next_line_id ?? 'S1'
   const lineOptions = [...(ctx?.lines.map((l) => l.id) ?? []), ...(establish ? [newLineId] : [])]
   const nowMin = run ? run.step * 10 : 0
@@ -256,15 +259,7 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
             const pos: LatLon = [origin[0] + (frontKm * Math.cos(ang)) / 111.32, origin[1] + (frontKm * Math.sin(ang)) / (111.32 * Math.cos((origin[0] * Math.PI) / 180))]
             return <Marker key={s} position={pos} interactive={false} icon={L.divIcon({ html: `<span style="font:700 11px Inter,sans-serif;color:#ffd24a;text-shadow:0 0 3px #000">${s}</span>`, className: 'fg-icon', iconSize: [22, 14], iconAnchor: [11, 7] })} />
           })}
-          {shown?.response?.tracks.map((t) => {
-            const p = [...t.points].reverse().find((x) => x.step <= step) ?? t.points[0]
-            if (!p) return null
-            return (
-              <CircleMarker key={t.id} center={[p.lat, p.lon]} radius={t.kind === 'heli' || t.kind === 'plane' ? 6 : 5} pathOptions={{ color: '#0a1014', weight: 1.5, fillColor: t.kind === 'heli' || t.kind === 'plane' ? '#7fd1ff' : t.kind === 'dozer' ? '#ffb347' : '#ff5a2a', fillOpacity: 1 }}>
-                <Tooltip direction="top">{t.name}</Tooltip>
-              </CircleMarker>
-            )
-          })}
+          {shown?.response && <UnitsLayer rec={shown.response} clockRef={clock} />}
         </MapStage>
       </div>
 

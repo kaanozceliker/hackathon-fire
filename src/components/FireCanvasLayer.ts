@@ -152,7 +152,15 @@ export class FireCanvasLayer extends L.Layer {
         const end = result.burnoutStep[i]
         let c: RGBA
         const zc = this.props.zoneColors ? zoneRgba(this.props.zoneColors, this.zonesOf(result)[i], this.props.zoneHover ?? null) : null
-        if (step >= end) c = zc ?? (grid.kind[i] === 1 ? BURNED_URBAN : BURNED)
+        if (step >= end) {
+          // freshly burned ground glows dark red, then cools to charcoal and ash over ~3 hours
+          if (zc) c = zc
+          else if (grid.kind[i] === 1) c = BURNED_URBAN
+          else {
+            const k = Math.min(1, (step - end) / 18)
+            c = [Math.round(BURNED_HOT[0] + (BURNED[0] - BURNED_HOT[0]) * k), Math.round(BURNED_HOT[1] + (BURNED[1] - BURNED_HOT[1]) * k), Math.round(BURNED_HOT[2] + (BURNED[2] - BURNED_HOT[2]) * k), Math.round(BURNED_HOT[3] + (BURNED[3] - BURNED_HOT[3]) * k)]
+          }
+        }
         else {
           const age = Math.max(0, step - t) / Math.max(1, end - t)
           c = FIRE_RAMP_RGBA[Math.min(FIRE_RAMP_RGBA.length - 1, Math.floor(age * FIRE_RAMP_RGBA.length))]
@@ -367,7 +375,9 @@ function zoneRgba(colors: (string | null)[], zone: number, hover: number | null)
 const hexRGBA = (hex: string, a: number): RGBA => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), Math.round(a * 255)]
 const FIRE_RAMP_RGBA = FIRE_RAMP.map((h) => hexRGBA(h, 0.92))
 const ARRIVAL_RGBA = ARRIVAL_BANDS.map((b) => hexRGBA(b.color, 0.55))
-const BURNED: RGBA = [70, 24, 22, 184]
+const BURNED: RGBA = [58, 30, 28, 178]
+/** Just burned out: still smouldering. */
+const BURNED_HOT: RGBA = [122, 34, 20, 205]
 /** Burned-out built-up land: grey ash rather than charred forest. */
 const BURNED_URBAN: RGBA = [96, 84, 80, 150]
 

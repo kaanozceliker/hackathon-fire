@@ -1,8 +1,8 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import L from 'leaflet'
-import { ImageOverlay, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
+import { Circle, ImageOverlay, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Helicopter, Loader2, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Truck } from 'lucide-react'
+import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Droplets, Eye, Helicopter, Home, Loader2, Milestone, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Trees, Truck } from 'lucide-react'
 import { MapStage, WindArrow } from '../components/MapStage'
 // the 3D view (MapTiler SDK, ~1.3 MB) loads only when chosen
 const Map3D = lazy(() => import('../components/Map3D').then((m) => ({ default: m.Map3D })))
@@ -428,12 +428,17 @@ export function Command() {
  * Resource icons, moved every frame from the playback clock: each glides between the positions recorded at the
  * surrounding 10-minute steps instead of jumping. Markers are managed directly in Leaflet, not re-rendered by React.
  */
-function UnitsLayer({ rec, clockRef }: { rec: ResponseRecord; clockRef: { current: number } }) {
+export function UnitsLayer({ rec, clockRef }: { rec: ResponseRecord; clockRef: { current: number } }) {
   const map = useMap()
   const recRef = useRef(rec)
   recRef.current = rec
   useEffect(() => {
-    const markers = new Map<string, { m: L.Marker; status: ResourceStatus | null }>()
+    // routes are SVG (not the map's canvas) so they can carry a slow CSS dash animation
+    const svg = L.svg({ padding: 0.5 })
+    const markers = new Map<string, { m: L.Marker; status: ResourceStatus | null; route: L.Polyline | null; move: unknown }>()
+    const fx = new Map<string, L.Marker>()
+    const scoopIcon = L.divIcon({ html: '<div class="fg-scoop"><i></i><i></i><i></i></div>', className: 'fg-icon', iconSize: [0, 0], iconAnchor: [0, 0] })
+    const splashIcon = L.divIcon({ html: '<div class="fg-splash"><i></i><i></i></div>', className: 'fg-icon', iconSize: [0, 0], iconAnchor: [0, 0] })
     let raf = 0
     const loop = () => {
       const r = recRef.current
@@ -465,7 +470,7 @@ function UnitsLayer({ rec, clockRef }: { rec: ResponseRecord; clockRef: { curren
         if (!e) {
           const m = L.marker(ll, { icon: unitIcon(tr.kind, p0.status), zIndexOffset: 500, keyboard: false }).addTo(map)
           m.bindTooltip('', { direction: 'top', offset: [0, -12] })
-          e = { m, status: null }
+          e = { m, status: null, route: null, move: null }
           markers.set(tr.id, e)
         } else e.m.setLatLng(ll)
         if (e.status !== p0.status) {
@@ -473,18 +478,53 @@ function UnitsLayer({ rec, clockRef }: { rec: ResponseRecord; clockRef: { curren
           e.m.setTooltipContent(`${tr.name} · ${STATUS[p0.status].label}`)
           e.status = p0.status
         }
+        // the route of the trip under way: a faint line with a slow flow towards where the unit is heading
+        const moving = mv && mv.path.length > 1 && (mv.path[0][0] !== mv.path[mv.path.length - 1][0] || mv.path[0][1] !== mv.path[mv.path.length - 1][1])
+        if (e.move !== (moving ? mv : null)) {
+          e.route?.remove()
+          e.route = null
+          e.move = moving ? mv : null
+          if (moving) {
+            const air = tr.kind === 'heli' || tr.kind === 'plane'
+            e.route = L.polyline(mv!.path, { renderer: svg, className: air ? 'fg-route fg-route-air' : 'fg-route', color: air ? '#8fd8ff' : '#ffd9a0', weight: air ? 1.6 : 2.4, opacity: air ? 0.55 : 0.5, interactive: false, lineCap: 'round', lineJoin: 'round' }).addTo(map)
+          }
+        }
       }
       for (const [id, e] of markers)
         if (!seen.has(id)) {
           e.m.remove()
+          e.route?.remove()
           markers.delete(id)
+        }
+      // aircraft filling up at a water source, and the splash of a drop
+      const want = new Set<string>()
+      ;(r.scoops ?? []).forEach((sc, k) => {
+        if (s < sc.step || s > sc.untilStep) return
+        const key = `s${k}`
+        want.add(key)
+        if (!fx.has(key)) fx.set(key, L.marker([sc.lat, sc.lon], { icon: scoopIcon, interactive: false, keyboard: false, zIndexOffset: 300 }).addTo(map))
+      })
+      r.drops.forEach((d, k) => {
+        if (s < d.step || s > d.step + 0.6) return
+        const key = `d${k}`
+        want.add(key)
+        if (!fx.has(key)) fx.set(key, L.marker([d.lat, d.lon], { icon: splashIcon, interactive: false, keyboard: false, zIndexOffset: 300 }).addTo(map))
+      })
+      for (const [k, m] of fx)
+        if (!want.has(k)) {
+          m.remove()
+          fx.delete(k)
         }
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
     return () => {
       cancelAnimationFrame(raf)
-      markers.forEach((e) => e.m.remove())
+      markers.forEach((e) => {
+        e.m.remove()
+        e.route?.remove()
+      })
+      fx.forEach((m) => m.remove())
     }
   }, [map, clockRef])
   return null
@@ -554,37 +594,51 @@ function paintMeasure(ctx: CanvasRenderingContext2D, grid: SimResult['grid'], m:
   const set = new Set(m.cells)
   const color = MEASURE_INFO[m.type].color
   const S = SCALE_M
+  const W = grid.cols * S
+  const H = grid.rows * S
+  // soft fill (slightly blurred so the 110 m cells read as a shape, not squares)
+  ctx.save()
+  ctx.filter = 'blur(1.2px)'
+  ctx.globalAlpha = on ? (m.type === 'emniyet_seridi' ? 0.5 : 0.26) : 0.1
+  ctx.fillStyle = color
+  for (const i of m.cells) ctx.fillRect((i % grid.cols) * S, ((i / grid.cols) | 0) * S, S, S)
+  ctx.restore()
+  // pattern inside: fire break = road dashes, thinning = small tree dots, settlement belt = fine dots
   ctx.save()
   ctx.beginPath()
   for (const i of m.cells) ctx.rect((i % grid.cols) * S, ((i / grid.cols) | 0) * S, S, S)
   ctx.clip()
-  ctx.globalAlpha = on ? 0.32 : 0.12
+  ctx.globalAlpha = on ? 0.85 : 0.3
   ctx.fillStyle = color
-  ctx.fillRect(0, 0, grid.cols * S, grid.rows * S)
-  ctx.globalAlpha = on ? 0.95 : 0.35
   ctx.strokeStyle = color
-  ctx.fillStyle = color
-  ctx.lineWidth = 1.4
-  ctx.beginPath()
-  const W = grid.cols * S
-  const H = grid.rows * S
-  if (m.type === 'emniyet_seridi' || m.type === 'aralama')
-    for (let k = -H; k < W; k += 5) {
+  if (m.type === 'emniyet_seridi') {
+    ctx.strokeStyle = 'rgba(30, 24, 8, 0.75)'
+    ctx.lineWidth = 1.2
+    ctx.setLineDash([3, 3])
+    ctx.beginPath()
+    for (let k = -H; k < W; k += 9) {
       ctx.moveTo(k, H)
       ctx.lineTo(k + H, 0)
-      if (m.type === 'aralama') {
-        ctx.moveTo(k, 0)
-        ctx.lineTo(k + H, H)
-      }
     }
-  ctx.stroke()
-  if (m.type === 'yerlesim_temizligi')
-    for (let y = 2; y < H; y += 5) for (let x = 2 + ((y / 5) % 2) * 2.5; x < W; x += 5) ctx.fillRect(x, y, 1.6, 1.6)
+    ctx.stroke()
+  } else if (m.type === 'aralama') {
+    for (let y = 3; y < H; y += 7)
+      for (let x = 3 + ((y / 7) % 2) * 3.5; x < W; x += 7) {
+        ctx.beginPath()
+        ctx.arc(x, y, 1.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+  } else if (m.type === 'yerlesim_temizligi') {
+    for (let y = 2; y < H; y += 5) for (let x = 2 + ((y / 5) % 2) * 2.5; x < W; x += 5) ctx.fillRect(x, y, 1.3, 1.3)
+  }
   ctx.restore()
-  // outline: cell edges facing outside the measure
-  ctx.globalAlpha = on ? 1 : 0.4
+  // outline with a soft glow along the edges facing outside
+  ctx.save()
+  ctx.globalAlpha = on ? 0.95 : 0.35
   ctx.strokeStyle = color
-  ctx.lineWidth = on ? 1.6 : 1
+  ctx.lineWidth = on ? 1.4 : 0.9
+  ctx.shadowColor = color
+  ctx.shadowBlur = on ? 5 : 0
   ctx.beginPath()
   for (const i of m.cells) {
     const x = (i % grid.cols) * S
@@ -595,7 +649,29 @@ function paintMeasure(ctx: CanvasRenderingContext2D, grid: SimResult['grid'], m:
     if (!set.has(i + grid.cols)) { ctx.moveTo(x, y + S); ctx.lineTo(x + S, y + S) }
   }
   ctx.stroke()
-  ctx.globalAlpha = 1
+  ctx.restore()
+}
+
+/** Icon of each measure type, for the map tags. */
+const MEASURE_ICON: Record<Measure['type'], typeof Eye> = { yerlesim_temizligi: Home, emniyet_seridi: Milestone, aralama: Trees, gozetleme: Eye, on_konuslanma: Truck, su_deposu: Droplets }
+const measureTagCache = new Map<string, L.DivIcon>()
+/** A map tag: a round badge with the measure's icon (its priority on top when chosen) and a short label. */
+export function measureTag(type: Measure['type'], label: string, priority: number | null, state: 'on' | 'off' | 'faded'): L.DivIcon {
+  const key = `${type}|${label}|${priority}|${state}`
+  let ic = measureTagCache.get(key)
+  if (!ic) {
+    const info = MEASURE_INFO[type]
+    const Icon = MEASURE_ICON[type]
+    const svg = renderToStaticMarkup(<Icon size={13} strokeWidth={2.3} />)
+    ic = L.divIcon({
+      html: `<div class="fg-mtag fg-mtag-${state}" style="--c:${info.color}"><span class="fg-mtag-badge">${svg}${priority ? `<b>${priority}</b>` : ''}</span><span class="fg-mtag-label">${label}</span></div>`,
+      className: 'fg-icon',
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    })
+    measureTagCache.set(key, ic)
+  }
+  return ic
 }
 
 /** Prevention measures on the map: patterned areas, numbered tags, and a card describing the measure on click. */
@@ -624,13 +700,7 @@ export function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = f
   }
   const tag = (m: Measure) => {
     const r = rank.get(m.id)
-    const info = MEASURE_INFO[m.type]
-    return L.divIcon({
-      html: `<div class="fg-zone-tag${r ? '' : ' fg-dim'}${faded ? ' fg-faded' : ''}" style="border-color:${info.color}"><span style="background:${info.color}"></span>${r ? `${r.priority} · ` : ''}${info.short}</div>`,
-      className: 'fg-icon',
-      iconSize: [0, 0],
-      iconAnchor: [0, 0],
-    })
+    return measureTag(m.type, MEASURE_INFO[m.type].short, r ? r.priority : null, faded ? 'faded' : r ? 'on' : 'off')
   }
   const sel = open ? measures.find((m) => m.id === open) : null
   const selRank = sel ? rank.get(sel.id) : undefined
@@ -638,6 +708,9 @@ export function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = f
     <>
       {/* during the rerun the measures step back so the fire stays in front */}
       <ImageOverlay url={url} bounds={gridBounds(grid)} zIndex={faded ? 350 : 450} opacity={faded ? 0.3 : 1} />
+      {measures.filter((m) => m.point && rank.has(m.id) && (m.type === 'gozetleme' || m.type === 'on_konuslanma' || m.type === 'su_deposu')).map((m) => (
+        <Circle key={`r${m.id}`} center={m.point!} radius={m.type === 'gozetleme' ? 15000 : m.type === 'su_deposu' ? 1200 : 2500} interactive={false} pathOptions={{ color: MEASURE_INFO[m.type].color, weight: 1.2, opacity: faded ? 0.15 : 0.45, dashArray: m.type === 'gozetleme' ? '2 7' : '4 5', fillColor: MEASURE_INFO[m.type].color, fillOpacity: faded ? 0 : m.type === 'gozetleme' ? 0.03 : 0.08 }} />
+      ))}
       {measures.map((m) => (
         <Marker key={m.id} position={anchor(m)} icon={tag(m)} zIndexOffset={faded ? 0 : rank.has(m.id) ? 900 : 700} eventHandlers={{ click: () => setOpen(m.id) }} keyboard={false} />
       ))}

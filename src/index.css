@@ -110,3 +110,28 @@ html body .leaflet-container { background: #0a1014; font-family: var(--font-sans
 .fg-measure { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(10,16,20,.9); border: 2px solid; color: #e7eee9; font: 700 12px "Barlow Semi Condensed", sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .fg-zone-tag.fg-dim { opacity: .5; }
 .fg-zone-tag.fg-faded { opacity: .45; transform: translate(-50%, -50%) scale(.85); }
+
+/* vehicle routes, water scoops and drops */
+.fg-route { stroke-dasharray: 2 7; animation: fg-route-flow 1.6s linear infinite; filter: drop-shadow(0 0 2px rgba(255, 200, 120, .35)); }
+.fg-route-air { stroke-dasharray: 5 6; filter: drop-shadow(0 0 2px rgba(120, 200, 255, .35)); }
+@keyframes fg-route-flow { to { stroke-dashoffset: -18; } }
+.fg-scoop, .fg-splash { position: relative; width: 0; height: 0; pointer-events: none; }
+.fg-scoop i, .fg-splash i { position: absolute; left: 0; top: 0; border-radius: 50%; transform: translate(-50%, -50%); }
+.fg-scoop i { width: 10px; height: 10px; border: 2px solid rgba(143, 216, 255, .9); animation: fg-ripple 1.8s ease-out infinite; }
+.fg-scoop i:nth-child(2) { animation-delay: .6s; }
+.fg-scoop i:nth-child(3) { animation-delay: 1.2s; }
+@keyframes fg-ripple { from { width: 6px; height: 6px; opacity: .95; } to { width: 40px; height: 40px; opacity: 0; } }
+.fg-splash i { width: 14px; height: 14px; background: radial-gradient(circle, rgba(200, 235, 255, .9), rgba(90, 170, 230, .35) 60%, transparent 70%); animation: fg-splash 1.1s ease-out infinite; }
+.fg-splash i:nth-child(2) { background: none; border: 2px solid rgba(160, 220, 255, .8); animation-delay: .25s; }
+@keyframes fg-splash { from { width: 8px; height: 8px; opacity: 1; } to { width: 54px; height: 54px; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .fg-route, .fg-scoop i, .fg-splash i { animation: none; } }
+
+/* prevention measure tags */
+.fg-mtag { transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 0; cursor: pointer; filter: drop-shadow(0 1px 3px rgba(0,0,0,.55)); }
+.fg-mtag-badge { position: relative; width: 24px; height: 24px; border-radius: 50%; background: var(--c); color: #0a1014; display: flex; align-items: center; justify-content: center; border: 2px solid #0a1014; z-index: 1; }
+.fg-mtag-badge b { position: absolute; top: -7px; right: -7px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: #0a1014; color: #fff; border: 1.5px solid var(--c); font: 700 9.5px/12px "Barlow Semi Condensed", sans-serif; text-align: center; }
+.fg-mtag-label { margin-left: -10px; padding: 2px 8px 2px 14px; background: rgba(10,16,20,.88); border: 1.5px solid var(--c); border-left: 0; border-radius: 0 10px 10px 0; color: #e7eee9; font: 600 11.5px "Barlow Semi Condensed", sans-serif; white-space: nowrap; }
+.fg-mtag-off { opacity: .55; }
+.fg-mtag-off .fg-mtag-badge { background: rgba(10,16,20,.9); color: var(--c); border-color: var(--c); }
+.fg-mtag-faded { opacity: .45; transform: translate(-50%, -50%) scale(.85); }
+.fg-mtag:hover .fg-mtag-label { background: rgba(20,32,38,.96); }

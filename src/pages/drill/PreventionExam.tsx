@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import L from 'leaflet'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { Circle, CircleMarker, Marker, Polygon, Polyline, Tooltip } from 'react-leaflet'
 import { ArrowLeft, Bot, Check, Cpu, Droplets, Eye, Flame, Home, Loader2, Milestone, RotateCcw, Sparkles, Trash2, Trees, Truck, Undo2, Video, X } from 'lucide-react'
 import { MapStage } from '../../components/MapStage'
@@ -397,17 +399,59 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
 }
 
 /** A placed measure on the map. */
+const badgeCache = new Map<string, L.DivIcon>()
+/** Round icon badge with a short label, in the same style as the Komuta Merkezi measure tags. */
+function badge(tool: ToolId, label: string): L.DivIcon {
+  const key = `${tool}|${label}`
+  let ic = badgeCache.get(key)
+  if (!ic) {
+    const Icon = TOOL_ICON[tool]
+    ic = L.divIcon({
+      html: `<div class="fg-mtag fg-mtag-on" style="--c:${TOOLS[tool].color}"><span class="fg-mtag-badge">${renderToStaticMarkup(<Icon size={13} strokeWidth={2.3} />)}</span><span class="fg-mtag-label">${label}</span></div>`,
+      className: 'fg-icon',
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    })
+    badgeCache.set(key, ic)
+  }
+  return ic
+}
+
+/** A placed measure on the map: a glowing band, a hatched area, a belt or an icon badge. */
 function MeasureShape({ m, ringM }: { m: DrillMeasure; ringM: number }) {
   const T = TOOLS[m.tool]
   const tip = <Tooltip sticky>{T.label}{m.label ? ` · ${m.label}` : ''}</Tooltip>
-  if (T.kind === 'line') return <Polyline positions={m.points} pathOptions={{ color: T.color, weight: Math.max(3, (m.widthM ?? 30) / 15), opacity: 0.95 }}>{tip}</Polyline>
-  if (T.kind === 'area') return <Polygon positions={m.points} pathOptions={{ color: T.color, weight: 2, fillOpacity: 0.25 }}>{tip}</Polygon>
-  if (T.kind === 'settlement') return <Circle center={m.points[0]} radius={ringM} pathOptions={{ color: T.color, weight: 2, dashArray: '4 4', fillOpacity: 0.12 }}>{tip}</Circle>
+  const mid = (pts: LatLon[]): LatLon => (pts.length % 2 ? pts[(pts.length - 1) / 2] : [(pts[pts.length / 2 - 1][0] + pts[pts.length / 2][0]) / 2, (pts[pts.length / 2 - 1][1] + pts[pts.length / 2][1]) / 2])
+  if (T.kind === 'line') {
+    const w = Math.max(4, (m.widthM ?? 30) / 10)
+    return (
+      <>
+        <Polyline positions={m.points} interactive={false} pathOptions={{ color: T.color, weight: w + 8, opacity: 0.18, lineCap: 'round', lineJoin: 'round' }} />
+        <Polyline positions={m.points} pathOptions={{ color: T.color, weight: w, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }}>{tip}</Polyline>
+        <Polyline positions={m.points} interactive={false} pathOptions={{ color: '#1e1808', weight: 1.2, opacity: 0.8, dashArray: '4 5' }} />
+        <Marker position={mid(m.points)} icon={badge(m.tool, `${m.widthM ?? 30} m şerit`)} interactive={false} keyboard={false} />
+      </>
+    )
+  }
+  if (T.kind === 'area')
+    return (
+      <>
+        <Polygon positions={m.points} pathOptions={{ color: T.color, weight: 2, opacity: 0.9, fillColor: T.color, fillOpacity: 0.18, dashArray: '6 4' }}>{tip}</Polygon>
+        <Marker position={[m.points.reduce((a, p) => a + p[0], 0) / m.points.length, m.points.reduce((a, p) => a + p[1], 0) / m.points.length]} icon={badge(m.tool, 'Aralama')} interactive={false} keyboard={false} />
+      </>
+    )
+  if (T.kind === 'settlement')
+    return (
+      <>
+        <Circle center={m.points[0]} radius={ringM} interactive={false} pathOptions={{ color: T.color, weight: 10, opacity: 0.12, fill: false }} />
+        <Circle center={m.points[0]} radius={ringM} pathOptions={{ color: T.color, weight: 2, opacity: 0.9, dashArray: '4 4', fillColor: T.color, fillOpacity: 0.08 }}>{tip}</Circle>
+      </>
+    )
   const range = m.tool === 'kule' ? COSTS.araclar.kule.gorusKm : m.tool === 'kamera' ? COSTS.araclar.kamera.gorusKm : 0
   return (
     <>
-      {range > 0 && <Circle center={m.points[0]} radius={range * 1000} interactive={false} pathOptions={{ color: T.color, weight: 1, opacity: 0.6, dashArray: '3 6', fill: false }} />}
-      <CircleMarker center={m.points[0]} radius={8} pathOptions={{ color: '#0a1014', weight: 2, fillColor: T.color, fillOpacity: 1 }}>{tip}</CircleMarker>
+      {range > 0 && <Circle center={m.points[0]} radius={range * 1000} interactive={false} pathOptions={{ color: T.color, weight: 1.2, opacity: 0.5, dashArray: '2 7', fillColor: T.color, fillOpacity: 0.03 }} />}
+      <Marker position={m.points[0]} icon={badge(m.tool, T.label)} keyboard={false}>{tip}</Marker>
     </>
   )
 }

@@ -11,6 +11,7 @@ import { ResponseLayer } from './ResponseLayer'
 import { aqiOf, computeSmoke, pmAt } from '../sim/smoke'
 import { weatherAt } from '../sim/weather'
 import { FireCanvasLayer, type CellInfo, type FireMode } from './FireCanvasLayer'
+import { FireFxLayer } from './FireFxLayer'
 import { gridBounds } from '../sim/terrain'
 import { compass } from '../sim/geo'
 
@@ -72,6 +73,26 @@ function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; r
       layer.current = null
     }
   }, [map])
+  // glow and sparks over the burning cells (fire view only)
+  const fx = useRef<FireFxLayer | null>(null)
+  useEffect(() => {
+    const l = new FireFxLayer()
+    l.addTo(map)
+    fx.current = l
+    return () => {
+      l.remove()
+      fx.current = null
+    }
+  }, [map])
+  const propsRef = useRef(props)
+  propsRef.current = props
+  useEffect(() => {
+    const live = props.mode === 'fire' && !props.zoneColors ? props.result : null
+    fx.current?.update(props.grid, live, () => {
+      const q = propsRef.current
+      return q.clockRef ? q.clockRef.current / 10 : q.step
+    })
+  })
   const { onHover } = props
   useMapEvents({
     mousemove: (e) => onHover(layer.current?.cellAt(e.latlng) ?? null),

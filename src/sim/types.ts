@@ -176,6 +176,8 @@ export interface ResponseRecord {
     moves: { fromStep: number; toStep: number; path: LatLon[] }[]
   }[]
   drops: { step: number; lat: number; lon: number }[]
+  /** Aircraft filling up at a water source, from step to untilStep (fractional steps). */
+  scoops?: { step: number; untilStep: number; lat: number; lon: number; kind: 'heli' | 'plane' }[]
   evacuations: { settlementId: string; name: string; population: number; startStep: number; doneStep: number; atRisk: boolean; to: string; geom: LatLon[] }[]
   /** The same fire with no response, for comparison. */
   baseline: { affectedHa: number; forestHa: number; settlementsReached: number; steps: number }

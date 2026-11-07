@@ -161,6 +161,7 @@ export class ResponseRun {
   decisions: Decision[] = []
   events: ResponseEvent[] = []
   private drops: ResponseRecord['drops'] = []
+  private scoops: NonNullable<ResponseRecord['scoops']> = []
   private tracks: ResponseRecord['tracks'] = []
   private evacs: (ResponseRecord['evacuations'][number] & { started: boolean })[] = []
   private pendingTriggers: string[] = []
@@ -572,6 +573,19 @@ export class ResponseRun {
     const w = pool.reduce((a, b) => (haversineM(b.pos, p) < haversineM(a.pos, p) ? b : a), pool[0])
     const km = w ? haversineM(w.pos, p) / 1000 : 8
     r.nextDropStep = this.step + Math.max(1, Math.round(((2 * km) / air.kmh) * 6 + air.fillMin / STEP_MIN))
+    // the round trip as three legs (fly out, fill, fly back) so the map shows the aircraft going for water
+    if (w) {
+      // legs scaled to fit exactly between this drop and the next (the engine rounds the cycle to whole steps)
+      const k = (r.nextDropStep - this.step) / Math.max(1e-6, 2 * Math.max(0.05, (km / air.kmh) * 6) + air.fillMin / STEP_MIN)
+      const fly = Math.max(0.05, (km / air.kmh) * 6) * k
+      const fill = (air.fillMin / STEP_MIN) * k
+      const tr = this.tracks.find((t) => t.id === r.id)!
+      const s0 = this.step
+      tr.moves.push({ fromStep: s0, toStep: s0 + fly, path: [p, w.pos] })
+      tr.moves.push({ fromStep: s0 + fly, toStep: s0 + fly + fill, path: [w.pos, w.pos] })
+      tr.moves.push({ fromStep: s0 + fly + fill, toStep: r.nextDropStep - 0.001, path: [w.pos, p] })
+      this.scoops.push({ step: s0 + fly, untilStep: s0 + fly + fill, lat: w.pos[0], lon: w.pos[1], kind: r.kind as 'heli' | 'plane' })
+    }
   }
 
   /** The burning cell furthest from the origin in a sector (the head there), or -1. */
@@ -1043,6 +1057,7 @@ export class ResponseRun {
       lines: this.lines.map((l) => ({ id: l.id, level: l.level, hoursAhead: l.hoursAhead, createdStep: l.createdStep, cells: l.cells, sectorOf: l.sectorOf, builtStep: l.builtStep.slice(), breachedStep: l.breachedStep.slice() })),
       tracks: this.tracks.map((t) => ({ ...t, points: t.points.slice(), moves: t.moves.slice() })),
       drops: this.drops.slice(),
+      scoops: this.scoops.slice(),
       evacuations: this.evacs.map(({ started: _s, ...e }) => ({ ...e })),
       baseline: b ? { affectedHa: b.affectedHa, forestHa: b.forestHa, settlementsReached: baseline!.impacts.filter((i) => i.arrivalMin !== null).length, steps: baseline!.steps } : { affectedHa: 0, forestHa: 0, settlementsReached: 0, steps: 0 },
       extinguishedStep: this.extinguishedStep,
