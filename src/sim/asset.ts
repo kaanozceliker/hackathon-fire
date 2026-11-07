@@ -16,8 +16,15 @@ import { SECTORS, type Grid, type Sector } from './types'
  * the nearest fire station, water and earlier burns – and runs a few test fires from the riskiest directions.
  */
 
-export type AssetKind = 'ev' | 'isyeri' | 'tesis' | 'tarim'
-export const ASSET_KIND_LABEL: Record<AssetKind, string> = { ev: 'Ev', isyeri: 'İşyeri / şirket', tesis: 'Tesis / depo', tarim: 'Tarım yapısı' }
+export type AssetKind = 'fabrika' | 'ges' | 'maden' | 'ozel'
+export const ASSET_KIND_LABEL: Record<AssetKind, string> = { fabrika: 'Fabrika', ges: 'Güneş enerji santrali (GES)', maden: 'Maden sahası', ozel: 'Özel mülk' }
+/** What makes each kind of asset vulnerable to a wildfire, for the report. */
+export const ASSET_KIND_NOTES: Record<AssetKind, string> = {
+  fabrika: 'Büyük çatılı yapılar, açık depolama alanları, yanıcı hammadde ve yakıt tankları; kor çatı açıklıklarından ve depolardan girer. Genelde kendi yangın ekibi ve su deposu olabilir.',
+  ges: 'Panel sıraları arasındaki kuru ot ve çalı en büyük tehlike; inverter, trafo ve kablo kanalları tutuşabilir, duman ve kül panelleri kirletir. Sıra aralarında bakım yolu itfaiye erişimi için önemlidir.',
+  maden: 'Açık ocak ve döküm alanları yanmaz, ama iş makineleri, yakıt istasyonu, patlayıcı deposu, konveyörler ve tesis binaları risklidir; sahayı çevreleyen bitki örtüsü ve personel tahliyesi önemlidir.',
+  ozel: 'Ev ve bahçe: çatı, oluk, ahşap veranda, bahçedeki odun ve yanıcı eşya, çite kadar uzanan bitki; yangının yapıya kordan ulaşması en yaygın yoldur.',
+}
 
 export const RINGS = [
   { label: 'Yakın çevre', fromM: 0, toM: 150 },
@@ -318,7 +325,7 @@ export const EFFORT_LABEL: Record<AssetReport['actions'][number]['effort'], stri
 /** The numbers the AI reads. */
 export function assetContext(p: AssetProfile) {
   return {
-    asset: { name: p.name, type: ASSET_KIND_LABEL[p.kind], area_ha: p.areaHa, elevation_m: p.assetElev, region: regionById(p.areaId).name },
+    asset: { name: p.name, type: ASSET_KIND_LABEL[p.kind], type_vulnerabilities: ASSET_KIND_NOTES[p.kind], area_ha: p.areaHa, elevation_m: p.assetElev, region: regionById(p.areaId).name },
     computed_risk: { score: p.score, level: LEVEL_LABEL[p.level] },
     rings: p.rings.map((r) => ({ ring: `${r.fromM}–${r.toM} m`, forest_ha: r.forestHa, shrub_ha: r.shrubHa, open_ha: r.openHa, built_ha: r.builtHa, mean_fuel_0_1: r.fuel })),
     directions: p.sectors.map((s) => ({ from: s.sector, forest_and_shrub_within_2km_ha: s.fuelHa, within_300m_ha: s.nearFuelHa, upslope_to_asset_pct: s.upslopePct, wind_share: s.windShare, score: s.score })),
@@ -338,7 +345,13 @@ export function ruleAssetReport(p: AssetProfile): AssetReport {
   const actions: AssetReport['actions'] = []
   if (n0 > 0.2) actions.push({ title: 'Yapının çevresindeki ilk 30 m\'yi yanmaz alan yapın', where: 'Yakın çevre', when: 'hemen', effort: 'orta', reason: `150 m içinde ${n0.toFixed(1)} ha orman ve maki var.` })
   actions.push({ title: `${top[0].sector} cephesinde 30–100 m kuşakta yakıt azaltın`, where: `${top[0].sector} cephesi`, when: 'sezon_oncesi', effort: 'orta', reason: why(top[0]) || 'En riskli yön.' })
-  actions.push({ title: 'Çatı, oluk ve havalandırma açıklıklarını kora karşı koruyun', where: 'Yapı', when: 'sezon_oncesi', effort: 'dusuk', reason: 'Yapıların çoğu alevle değil, uçan korla tutuşur.' })
+  const kindAction: Record<AssetKind, AssetReport['actions'][number]> = {
+    fabrika: { title: 'Açık depolama ve yakıt tanklarını bitki örtüsünden uzaklaştırın', where: 'Tesis alanı', when: 'sezon_oncesi', effort: 'orta', reason: 'Yanıcı hammadde ve yakıt korla kolay tutuşur.' },
+    ges: { title: 'Panel sıraları arasındaki otu yangın sezonundan önce biçin', where: 'Panel alanı', when: 'sezon_oncesi', effort: 'orta', reason: 'Panellerin altındaki kuru ot yangını santralin içinde taşır.' },
+    maden: { title: 'Yakıt istasyonu ve patlayıcı deposunun çevresini 50 m temizleyin', where: 'Tesis ve depolar', when: 'hemen', effort: 'orta', reason: 'Saha yanmasa da yakıt ve patlayıcı depoları en büyük tehlike.' },
+    ozel: { title: 'Çatı, oluk ve havalandırma açıklıklarını kora karşı koruyun', where: 'Yapı', when: 'sezon_oncesi', effort: 'dusuk', reason: 'Evlerin çoğu alevle değil, uçan korla tutuşur.' },
+  }
+  actions.push(kindAction[p.kind])
   if (!p.access.roadM || p.access.roadM > 300) actions.push({ title: 'İtfaiye aracının yanaşabileceği bir giriş yolu açın', where: 'Giriş', when: 'sezon_oncesi', effort: 'yuksek', reason: `En yakın yol ${p.access.roadM ?? '3000+'} m uzakta.` })
   if (!p.access.waterM || p.access.waterM > 1500) actions.push({ title: 'Yangın suyu deposu ve hortum hattı kurun', where: 'Yapı çevresi', when: 'sezon_oncesi', effort: 'orta', reason: 'Yakın su kaynağı yok.' })
   actions.push({ title: '30-30-30 günlerinde (30 °C, %30 nem, 30 km/sa rüzgar) açık ateş yakmayın, tahliye çantası hazır tutun', where: 'Tüm alan', when: 'yangin_sezonu', effort: 'dusuk', reason: `Önümüzdeki 7 günde ${p.weather.dangerDays} böyle gün var.` })

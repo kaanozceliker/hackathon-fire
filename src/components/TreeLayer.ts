@@ -56,6 +56,8 @@ export class TreeLayer implements maptilersdk.CustomLayerInterface {
   private timer = 0
   /** Terrain height at grid cell corners (exaggerated, as the map draws it), filled lazily. */
   private cornerZ = new Map<number, number>()
+  private missing = false
+  private retries = 0
 
   constructor(grid: Grid, getState: () => { result: SimResult | null; step: number }) {
     this.grid = grid
@@ -125,7 +127,13 @@ export class TreeLayer implements maptilersdk.CustomLayerInterface {
     let z = this.cornerZ.get(k)
     if (z === undefined) {
       const g = this.grid
-      z = this.map.queryTerrainElevation([g.lon0 + col * g.dLon, g.lat0 - row * g.dLat]) ?? 0
+      const v = this.map.queryTerrainElevation([g.lon0 + col * g.dLon, g.lat0 - row * g.dLat])
+      // terrain not loaded here yet: do not remember a wrong height, plant again shortly
+      if (v === null || v === undefined) {
+        this.missing = true
+        return 0
+      }
+      z = v
       this.cornerZ.set(k, z)
     }
     return z
@@ -150,6 +158,7 @@ export class TreeLayer implements maptilersdk.CustomLayerInterface {
     const key = `${c0},${c1},${r0},${r1}`
     if (key === this.builtKey) return
     this.builtKey = key
+    this.missing = false
     let forest = 0
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (g.kind[r * g.cols + c] >= 3) forest++
     const per = Math.max(1, Math.min(6, Math.floor(MAX_TREES / Math.max(1, forest))))
@@ -212,6 +221,13 @@ export class TreeLayer implements maptilersdk.CustomLayerInterface {
     }
     this.lastStep = -1
     map.triggerRepaint()
+    // some heights were not available yet (terrain still loading): try again in a moment
+    if (this.missing && this.retries < 20) {
+      this.retries++
+      this.builtKey = ''
+      window.clearTimeout(this.timer)
+      this.timer = window.setTimeout(() => this.plant(), 600)
+    } else if (!this.missing) this.retries = 0
   }
 
   /** Recolours only the trees whose cell changed fire state since the last call. */

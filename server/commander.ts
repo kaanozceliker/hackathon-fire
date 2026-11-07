@@ -344,6 +344,7 @@ const ASSET_SYSTEM = `Sen orman-yerleşim ara yüzünde (WUI) yapıların yangı
 
 Görevin varlık sahibine anlaşılır bir risk profili ve önlem raporu yazmak:
 - headline: en önemli tehdidi yön adıyla söyle (ör. "Güneybatıdaki yoğun bitki örtüsü ve hakim rüzgar koşulları nedeniyle bu cephe öncelikli incelenmeli").
+- Varlığın türüne göre düşün (type ve type_vulnerabilities): fabrika, güneş enerji santrali (GES), maden sahası ya da özel mülk için riskler ve önlemler farklıdır; en az iki önlem bu türe özgü olsun.
 - Önlemler somut olsun: yakın çevrede yanmaz alan (0-30 m), 30-100 m kuşakta yakıt azaltma ve ağaç taçlarını açma, çatı/oluk/havalandırma kor koruması, odun ve yanıcı malzemeyi uzaklaştırma, itfaiye erişim yolu, su deposu, kuru ot biçme vb. Her önlemi bu varlığın verisine bağla.
 - Yönleri Türkçe tam adla yaz (Kuzey, Kuzeydoğu, Doğu, Güneydoğu, Güney, Güneybatı, Batı, Kuzeybatı).
 - Sayıları verilen veriden al, uydurma. Risk düzeyini hesaplanan puana yakın tut, ancak gerekçeliyse bir basamak değiştirebilirsin.

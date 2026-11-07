@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 import L from 'leaflet'
 import { Circle, CircleMarker, Marker, Polygon, Polyline, Popup, Tooltip } from 'react-leaflet'
-import { AlertTriangle, Bot, Building2, Check, Cpu, Droplets, Flame, Loader2, MapPin, PenLine, Route, Shield, ShieldCheck, Siren, Thermometer, Trash2, Undo2, Wind, X } from 'lucide-react'
+import { AlertTriangle, Bot, Box, Building2, Check, Cpu, Droplets, Factory, Flame, Home, Loader2, Map as MapIcon, MapPin, PenLine, Pickaxe, Route, Shield, ShieldCheck, Siren, Sun, Thermometer, Trash2, Undo2, Wind, X } from 'lucide-react'
 import { MapStage, WindArrow } from '../components/MapStage'
 import { icons } from '../components/mapIcons'
 import { Panel } from '../components/ui'
@@ -11,6 +11,14 @@ import { cellOf } from '../sim/terrain'
 import { compass, type LatLon } from '../sim/geo'
 import { SECTORS, type Sector } from '../sim/types'
 import { askAssetReport } from '../lib/commanderClient'
+const AssetMap3D = lazy(() => import('../components/AssetMap3D').then((m) => ({ default: m.AssetMap3D })))
+/** The four kinds of asset, with an icon and an example name. */
+const KIND_CARDS: { kind: 'fabrika' | 'ges' | 'maden' | 'ozel'; icon: typeof Factory; example: string }[] = [
+  { kind: 'fabrika', icon: Factory, example: 'ör. Merkez fabrika' },
+  { kind: 'ges', icon: Sun, example: 'ör. Yamaç GES' },
+  { kind: 'maden', icon: Pickaxe, example: 'ör. Kuzey ocağı' },
+  { kind: 'ozel', icon: Home, example: 'ör. Yazlık ev' },
+]
 import {
   ASSET_KIND_LABEL,
   EFFORT_LABEL,
@@ -47,7 +55,8 @@ export function AssetShield() {
   const region = regionById(areaId)
   const grid = getGrid(areaId)
   const [name, setName] = useState('')
-  const [kind, setKind] = useState<AssetKind>('ev')
+  const [kind, setKind] = useState<AssetKind>('fabrika')
+  const [view, setView] = useState<'2d' | '3d'>('2d')
   const [drawing, setDrawing] = useState(false)
   const [poly, setPoly] = useState<LatLon[]>([])
   const [closed, setClosed] = useState(false)
@@ -64,6 +73,7 @@ export function AssetShield() {
   const reset = () => {
     setPoly([])
     setClosed(false)
+    setView('2d')
     setProfile(null)
     setReport(null)
     setPopup(false)
@@ -77,6 +87,8 @@ export function AssetShield() {
     if (poly.length < 3) return note('Alan için en az üç köşe gerekli.')
     setDrawing(false)
     setClosed(true)
+    // show the model on the drawn area right away
+    setView('3d')
   }
 
   const analyse = async () => {
@@ -133,7 +145,7 @@ export function AssetShield() {
         <div>
           <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-muted"><Shield size={13} /> Varlık Kalkanı</div>
           <h2 className="mt-0.5 text-[16px] font-semibold">Varlığınızın yangın riski</h2>
-          <p className="mt-1 text-[12px] leading-snug text-muted">Evinizi, işyerinizi veya tesisinizi haritada çizin. Çevresindeki bitki örtüsü, eğim, hava ve ulaşım değerlendirilir; yapay zeka size özel bir önlem raporu hazırlar.</p>
+          <p className="mt-1 text-[12px] leading-snug text-muted">Fabrikanızı, GES'inizi, maden sahanızı veya mülkünüzü haritada çizin; seçtiğiniz türün 3B modeli alana sığdırılır. Çevresindeki bitki örtüsü, eğim, hava ve ulaşım değerlendirilir; yapay zeka size özel bir önlem raporu hazırlar.</p>
         </div>
         <div className="space-y-2">
           <label className="block text-[12px] text-muted">Bölge
@@ -141,16 +153,20 @@ export function AssetShield() {
               {REGIONS.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-[12px] text-muted">Varlığın adı
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ör. Yazlık ev" className="mt-1 w-full border border-line2 bg-bg px-2 py-1.5 text-[13px] text-ink" />
-            </label>
-            <label className="block text-[12px] text-muted">Türü
-              <select value={kind} onChange={(e) => setKind(e.target.value as AssetKind)} className="mt-1 w-full border border-line2 bg-bg px-2 py-1.5 text-[13px] text-ink">
-                {(Object.keys(ASSET_KIND_LABEL) as AssetKind[]).map((k) => <option key={k} value={k}>{ASSET_KIND_LABEL[k]}</option>)}
-              </select>
-            </label>
+          <div>
+            <div className="mb-1 text-[12px] text-muted">Varlığın türü</div>
+            <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Varlığın türü">
+              {KIND_CARDS.map(({ kind: k, icon: Icon }) => (
+                <button key={k} role="radio" aria-checked={kind === k} onClick={() => setKind(k)} className={`flex items-center gap-2 border px-2 py-2 text-left text-[12.5px] font-medium ${kind === k ? 'border-forest bg-forest/10 text-ink' : 'border-line2 text-muted hover:border-muted hover:text-ink'}`}>
+                  <Icon size={16} className={kind === k ? 'text-forest' : ''} />
+                  <span className="leading-tight">{ASSET_KIND_LABEL[k].replace(' (GES)', '')}</span>
+                </button>
+              ))}
+            </div>
           </div>
+          <label className="block text-[12px] text-muted">Varlığın adı
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={KIND_CARDS.find((c) => c.kind === kind)!.example} className="mt-1 w-full border border-line2 bg-bg px-2 py-1.5 text-[13px] text-ink" />
+          </label>
           {!closed ? (
             <button onClick={() => { setDrawing(true); setPoly([]) }} className={`flex w-full items-center justify-center gap-2 border px-3 py-2 text-[13px] font-semibold ${drawing ? 'border-forest bg-forest-dim/30 text-forest' : 'border-line2 hover:border-forest hover:text-forest'}`}>
               <PenLine size={15} /> {drawing ? `Çiziliyor: ${poly.length} köşe` : 'Varlığı haritada çiz'}
@@ -260,6 +276,23 @@ export function AssetShield() {
           </div>
         )}
         {msg && <div className="absolute bottom-24 left-1/2 z-[600] -translate-x-1/2 border border-amber/60 bg-bg/95 px-3 py-1.5 text-[12.5px] text-amber">{msg}</div>}
+        {closed && (
+          <div className="absolute right-3 top-3 z-[700] flex gap-0.5 rounded-md border border-line bg-panel/95 p-0.5 text-[12.5px] shadow" role="radiogroup" aria-label="Harita görünümü">
+            {([['2d', '2B harita', MapIcon], ['3d', '3B model', Box]] as const).map(([v, l, Icon]) => (
+              <button key={v} role="radio" aria-checked={view === v} onClick={() => setView(v)} className={`flex items-center gap-1.5 rounded px-2.5 py-1 font-medium ${view === v ? 'bg-forest/15 text-ink' : 'text-muted hover:text-ink'}`}><Icon size={14} /> {l}</button>
+            ))}
+          </div>
+        )}
+        {closed && view === '3d' && (
+          <div className="absolute inset-0 z-[600] bg-bg">
+            <Suspense fallback={<div className="flex h-full items-center justify-center text-[13px] text-muted"><Loader2 size={16} className="mr-2 animate-spin" /> 3B görünüm yükleniyor…</div>}>
+              <AssetMap3D grid={grid} polygon={poly} kind={kind} />
+            </Suspense>
+            <div className="pointer-events-none absolute bottom-3 left-3 max-w-[340px] rounded-md border border-line bg-panel/92 px-3 py-2 text-[12px] leading-snug">
+              <b>{ASSET_KIND_LABEL[kind]}</b> çizdiğiniz alana gerçek boyutunda yerleştirildi. Döndürmek için sağ tıkla sürükleyin; türü soldan değiştirebilirsiniz. Model temsilidir.
+            </div>
+          </div>
+        )}
         {!poly.length && !drawing && (
           <div className="absolute left-14 top-2 z-[500] max-w-[330px] border border-line2 bg-bg/92 px-2.5 py-2 text-[12px]">
             Varlığınızı bulmak için haritayı yakınlaştırın ve <b>Uydu</b> görünümüne geçin, sonra soldan <b>Varlığı haritada çiz</b>'e basın.
