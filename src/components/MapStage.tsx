@@ -14,18 +14,26 @@ import { FireCanvasLayer, type CellInfo, type FireMode } from './FireCanvasLayer
 import { gridBounds } from '../sim/terrain'
 import { compass } from '../sim/geo'
 
+// Dark base map from MapTiler (the same key as the 3D view); CARTO only when no key is set
+const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY as string | undefined
 const BASEMAPS = {
-  dark: {
-    label: 'Koyu',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attr: '&copy; OpenStreetMap contributors &copy; CARTO',
-  },
+  dark: MAPTILER_KEY
+    ? {
+        label: 'Koyu',
+        url: `https://api.maptiler.com/maps/dataviz-dark/256/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,
+        attr: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
+      }
+    : {
+        label: 'Koyu',
+        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attr: '&copy; OpenStreetMap contributors &copy; CARTO',
+      },
   satellite: {
     label: 'Uydu',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attr: 'Imagery &copy; Esri, Maxar, Earthstar Geographics',
   },
-} as const
+}
 
 const KIND_LABEL = ['Su', 'Yerleşim', 'Seyrek / tarım', 'Maki çalılığı', 'Çam ormanı']
 

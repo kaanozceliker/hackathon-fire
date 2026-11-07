@@ -16,7 +16,7 @@ import { fuelOf } from '../sim/engine'
 import { ARRIVAL_LEGEND, type FireMode } from '../components/FireCanvasLayer'
 import { REGIONS, regionById, defaultConfig } from '../data/regions'
 import { getGrid } from '../sim/gridCache'
-import { cellOf, gridBounds } from '../sim/terrain'
+import { cellCenter, cellOf, gridBounds } from '../sim/terrain'
 import { compass } from '../sim/geo'
 import type { Intensity, TerrainType } from '../sim/types'
 import { useStore } from '../state/store'
@@ -43,12 +43,14 @@ const arrowIcon = (deg: number) =>
 
 export function Studio() {
   const s = useStore()
-  const { draft, patchDraft, active, step, dirty, progress, startSimulation, notify, setDraftArea, demoPlayed, markDemoPlayed, restart, setPlaying, loadPreset } = s
+  const { draft, patchDraft, active, step, dirty, progress, startSimulation, notify, setDraftArea, loadPreset } = s
   const [mode, setMode] = useState<FireMode>('fire')
   const region = regionById(draft.areaId)
   const grid = getGrid(draft.areaId)
   const res = active.result
-  const matches = res.config.areaId === draft.areaId
+  const sameArea = res.config.areaId === draft.areaId
+  // the shown run only fits the map while the ignition point is where it started; after a move the map shows the land
+  const matches = sameArea && res.config.ignition[0] === draft.ignition[0] && res.config.ignition[1] === draft.ignition[1]
   const shownMode: FireMode = matches ? mode : 'fuel'
   const stat = res.series[Math.min(step, res.series.length - 1)]
   const [weatherMode, setWeatherMode] = useState<'fixed' | 'live'>(draft.weather ? 'live' : 'fixed')
@@ -111,20 +113,27 @@ export function Studio() {
   const now = weatherAt(res.config, stat.minutes)
   const weatherChart = useMemo(() => (res.config.weather ? weatherSeries(res.config) : null), [res])
 
-  useEffect(() => {
-    if (!demoPlayed) {
-      markDemoPlayed()
-      restart()
-      const t = window.setTimeout(() => setPlaying(true), 600)
-      return () => window.clearTimeout(t)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const onMapClick = (lat: number, lon: number) => {
     const c = cellOf(grid, lat, lon)
     if (c < 0) return notify(`Tutuşma noktası seçili orman alanının (${region.name}) içinde olmalı.`)
-    if (grid.kind[c] === 0) return notify('Bu nokta açık su. Karada bir nokta seçin.')
+    if (grid.kind[c] === 0) {
+      // on water: take the nearest land cell (the coast is hard to see on the dark map)
+      let best = -1
+      let bd = Infinity
+      const cx = c % grid.cols
+      const cy = (c / grid.cols) | 0
+      for (let dy = -6; dy <= 6; dy++)
+        for (let dx = -6; dx <= 6; dx++) {
+          const x = cx + dx
+          const y = cy + dy
+          if (x < 0 || y < 0 || x >= grid.cols || y >= grid.rows || grid.kind[y * grid.cols + x] === 0) continue
+          if (dx * dx + dy * dy < bd) { bd = dx * dx + dy * dy; best = y * grid.cols + x }
+        }
+      if (best < 0) return notify('Bu nokta açık su. Karada bir nokta seçin.')
+      notify('Tıkladığınız yer su; en yakın kara noktası seçildi.')
+      return patchDraft({ ignition: cellCenter(grid, best) })
+    }
     if (fuelOf(grid, c, 1) === 0) notify('Bu nokta neredeyse çıplak toprak: yangın burada tutunamayabilir.')
     patchDraft({ ignition: [lat, lon] })
   }
@@ -308,7 +317,9 @@ export function Studio() {
 
         {!matches && (
           <div className="absolute left-14 top-2 z-[500] max-w-[300px] border border-line2 bg-bg/92 px-2.5 py-2 text-[12px]">
-            <b>{region.name}</b> yeni bir alan. Harita bu alanın yakıtını gösteriyor. Tutuşma noktasını yerleştirin, hava durumunu ayarlayın ve <b>Simülasyonu başlat</b>'a basın.
+            {sameArea
+              ? <>Tutuşma noktası taşındı. Harita yeni noktanın çevresindeki yakıtı gösteriyor; yangını görmek için <b>Simülasyonu başlat</b>'a basın.</>
+              : <><b>{region.name}</b> yeni bir alan. Harita bu alanın yakıtını gösteriyor. Tutuşma noktasını yerleştirin, hava durumunu ayarlayın ve <b>Simülasyonu başlat</b>'a basın.</>}
           </div>
         )}
         {matches && dirty && progress === null && (

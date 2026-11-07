@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CircleMarker, ImageOverlay, Marker, Polyline, Tooltip } from 'react-leaflet'
 import L from 'leaflet'
-import { ArrowLeft, Check, Flame, Loader2, PenLine, RotateCcw, Siren, Undo2, X } from 'lucide-react'
+import { ArrowLeft, Bot, Check, Flame, Loader2, Pause, PenLine, Play, RotateCcw, Siren, Undo2, User, X } from 'lucide-react'
 import { MapStage } from '../../components/MapStage'
 import { icons } from '../../components/mapIcons'
 import { Panel } from '../../components/ui'
@@ -54,6 +54,20 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
   const [lastApplied, setLastApplied] = useState<string[]>([])
   const [result, setResult] = useState<{ you: SimResult; rules: SimResult; verdict: ResponseVerdict } | null>(null)
   const [view, setView] = useState<'you' | 'rules'>('you')
+  // result replay: either response run, step by step, with its decisions
+  const [play, setPlay] = useState<{ step: number; on: boolean; speed: number }>({ step: 0, on: false, speed: 1 })
+  const replay = phase === 'result' && result ? (view === 'you' ? result.you : result.rules) : null
+  useEffect(() => {
+    if (!play.on || !replay) return
+    const id = window.setInterval(() => {
+      setPlay((p) => (p.step >= replay.steps ? { ...p, on: false } : { ...p, step: Math.min(replay.steps, p.step + 1) }))
+    }, 180 / play.speed)
+    return () => window.clearInterval(id)
+  }, [play.on, play.speed, replay])
+  const watch = (v: 'you' | 'rules') => {
+    setView(v)
+    setPlay({ step: 0, on: true, speed: play.speed })
+  }
 
   const yieldUi = () => new Promise<void>((r) => setTimeout(r, 20))
 
@@ -69,6 +83,7 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
       const rules = runWithRules(grid, sc.config, region.settlements, infra, sc.reportMin, { noTowerGain: true })
       setResult({ you, rules, verdict: judgeResponse(you, rules, region.settlements) })
       setView('you')
+      setPlay({ step: you.steps, on: false, speed: 1 })
       setPhase('result')
       return
     }
@@ -126,7 +141,7 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
   const candidates = phase === 'decide' && run ? run.lineCandidates : []
   const candImgs = useMemo(() => candidates.map((c) => ({ id: c.id, url: cellsImage(grid.cols, grid.rows, c.cells, LINE_COLOR[c.id]) })), [candidates, grid])
   const shown = phase === 'result' && result ? (view === 'you' ? result.you : result.rules) : snap
-  const step = shown ? shown.steps : 0
+  const step = shown ? (phase === 'result' ? Math.min(play.step, shown.steps) : shown.steps) : 0
   const newLineId = ctx?.next_line_id ?? 'S1'
   const lineOptions = [...(ctx?.lines.map((l) => l.id) ?? []), ...(establish ? [newLineId] : [])]
   const nowMin = run ? run.step * 10 : 0
@@ -207,6 +222,14 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
             <button onClick={() => { setCustom([]); setDrawing(false) }} className="flex items-center gap-1 border border-line2 px-2 py-1"><X size={13} /> Vazgeç</button>
           </div>
         )}
+        {phase === 'result' && replay && (
+          <div className="absolute bottom-12 left-1/2 z-[500] flex w-[min(560px,90%)] -translate-x-1/2 items-center gap-2 border border-line2 bg-bg/95 px-3 py-2 text-[12px]">
+            <button onClick={() => setPlay((p) => ({ ...p, on: !p.on, step: p.step >= replay.steps ? 0 : p.step }))} aria-label={play.on ? 'Durdur' : 'Oynat'} className="flex h-7 w-7 shrink-0 items-center justify-center border border-forest/60 text-forest">{play.on ? <Pause size={14} /> : <Play size={14} />}</button>
+            <input type="range" min={0} max={replay.steps} value={step} onChange={(e) => setPlay((p) => ({ ...p, step: Number(e.target.value), on: false }))} aria-label="Oynatma zamanı" className="min-w-0 flex-1" style={{ ['--p' as string]: `${(step / Math.max(1, replay.steps)) * 100}%` }} />
+            <b className="w-[58px] shrink-0 text-right tabular-nums">{T(step * 10)}</b>
+            {[1, 2, 4].map((sp) => <button key={sp} onClick={() => setPlay((p) => ({ ...p, speed: sp }))} aria-pressed={play.speed === sp} className={`border px-1.5 py-0.5 ${play.speed === sp ? 'border-forest text-forest' : 'border-line2 text-muted'}`}>{sp}×</button>)}
+          </div>
+        )}
         <MapStage
           grid={grid}
           result={shown}
@@ -259,17 +282,10 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
               </table>
             </Panel>
             <div className="flex gap-1.5">
-              <button onClick={() => setView('you')} aria-pressed={view === 'you'} className={`flex-1 border px-2 py-1 text-[12px] ${view === 'you' ? 'border-forest bg-forest-dim/30' : 'border-line2'}`}>Sizin müdahaleniz</button>
-              <button onClick={() => setView('rules')} aria-pressed={view === 'rules'} className={`flex-1 border px-2 py-1 text-[12px] ${view === 'rules' ? 'border-forest bg-forest-dim/30' : 'border-line2'}`}>Sistem komutanı</button>
+              <button onClick={() => watch('you')} aria-pressed={view === 'you'} className={`flex flex-1 items-center justify-center gap-1.5 border px-2 py-1.5 text-[12px] ${view === 'you' ? 'border-forest bg-forest-dim/30' : 'border-line2'}`}><User size={13} /> Sizin müdahaleniz</button>
+              <button onClick={() => watch('rules')} aria-pressed={view === 'rules'} className={`flex flex-1 items-center justify-center gap-1.5 border px-2 py-1.5 text-[12px] ${view === 'rules' ? 'border-forest bg-forest-dim/30' : 'border-line2'}`}><Bot size={13} /> Sistem komutanını izle</button>
             </div>
-            <Panel title="Kararlarınız">
-              <ol className="space-y-1.5 text-[12px]">
-                {result.you.response!.decisions.filter((d) => d.output.actions.some((x) => x.type !== 'hold')).map((d, i) => (
-                  <li key={i}><b>{T(d.step * 10)}</b> <span className="text-muted">{d.applied.join(' ')}</span></li>
-                ))}
-                <li className="text-[11.5px] text-muted">{result.you.response!.decisions.filter((d) => d.output.actions.every((x) => x.type === 'hold')).length} karar anında değişiklik yapılmadı.</li>
-              </ol>
-            </Panel>
+            {replay && <ReplayLog run={replay} step={step} who={view} onJump={(st) => setPlay((p) => ({ ...p, step: st, on: false }))} />}
             <div className="flex gap-2">
               <button onClick={() => restart(true)} className="flex flex-1 items-center justify-center gap-1.5 border border-line2 px-2 py-2 text-[12.5px] hover:text-forest"><RotateCcw size={13} /> Aynı yangını tekrar dene</button>
               <button onClick={() => restart(false)} className="flex flex-1 items-center justify-center gap-1.5 border border-line2 px-2 py-2 text-[12.5px] hover:text-forest"><Flame size={13} /> Yeni sınav</button>
@@ -349,5 +365,50 @@ export function ResponseExam({ onExit }: { onExit: () => void }) {
         )}
       </aside>
     </div>
+  )
+}
+
+/** The decisions and events of a response run up to the replay step; a click jumps to that moment. */
+function ReplayLog({ run, step, who, onJump }: { run: SimResult; step: number; who: 'you' | 'rules'; onJump: (step: number) => void }) {
+  const r = run.response!
+  const decisions = r.decisions.filter((d) => d.output.actions.some((x) => x.type !== 'hold'))
+  const holds = r.decisions.length - decisions.length
+  const events = r.events.filter((e) => e.step <= step).slice(-6).reverse()
+  const listRef = useRef<HTMLOListElement | null>(null)
+  const current = decisions.filter((d) => d.step <= step).length - 1
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-k="${current}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [current])
+  return (
+    <>
+      <Panel title={who === 'you' ? 'Kararlarınız' : 'Sistem komutanının kararları'} action={<span className="text-[11px] text-muted">{decisions.length} karar · {holds} kez değişiklik yok</span>} pad={false}>
+        <ol ref={listRef} className="max-h-[340px] divide-y divide-line overflow-auto">
+          {decisions.map((d, k) => {
+            const past = d.step <= step
+            return (
+              <li key={k} data-k={k} className={`cursor-pointer px-2.5 py-2 text-[12px] hover:bg-panel2 ${k === current ? 'border-l-2 border-forest bg-forest-dim/15' : ''} ${past ? '' : 'opacity-45'}`} onClick={() => onJump(d.step)}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <b>{T(d.step * 10)}</b>
+                  {d.output.phase && <span className="text-[11px] text-forest">{d.output.phase}</span>}
+                </div>
+                <div className="mt-0.5 text-[11px] text-amber">{d.trigger}</div>
+                {who === 'rules' && d.output.assessment && <p className="mt-1 leading-snug">{d.output.assessment}</p>}
+                <ul className="mt-1 space-y-0.5 text-muted">
+                  {d.applied.map((t, i) => {
+                    const why = who === 'rules' ? d.output.actions[i]?.rationale : ''
+                    return <li key={i}>• {t}{why ? <span className="block pl-2.5 text-[11px] italic">{why}</span> : null}</li>
+                  })}
+                </ul>
+              </li>
+            )
+          })}
+        </ol>
+      </Panel>
+      <Panel title={`Olaylar · ${T(step * 10)}`}>
+        {events.length ? (
+          <ul className="space-y-1 text-[12px]">{events.map((e, i) => <li key={i}><b className="tabular-nums">{T(e.step * 10)}</b> <span className="text-muted">{e.text}</span></li>)}</ul>
+        ) : <p className="text-[12px] text-muted">Bu ana kadar olay yok.</p>}
+      </Panel>
+    </>
   )
 }
