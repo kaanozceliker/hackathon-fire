@@ -2,9 +2,9 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import { Circle, ImageOverlay, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Crosshair, Droplets, Eye, Flame, Helicopter, Home, Info, Layers3, Loader2, Milestone, Play, Plane, Save, ShieldCheck, Square, RotateCcw, Tractor, Trees, Truck, Wind } from 'lucide-react'
+import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Crosshair, Droplets, Eye, Flame, Helicopter, Home, Info, Layers3, Loader2, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Milestone, Play, Plane, Save, ShieldCheck, Square, RotateCcw, Tractor, Trees, Truck, Wind } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
-import { ScenarioSetup, useIgnitionPicker } from '../components/ScenarioSetup'
+import { LandSetup, ScenarioSetup, useIgnitionPicker, useLandAuto } from '../components/ScenarioSetup'
 import { TreeCoverOverlay, surroundings } from '../components/IgnitionSurroundings'
 import { ExistingOverlay } from '../components/ExistingOverlay'
 import { simYear } from '../sim/existing'
@@ -165,6 +165,28 @@ export function Command() {
   const [showExisting, setShowExisting] = useState(false)
   const [landView, setLandView] = useState(false)
   const around = useMemo(() => surroundings(grid, draft.ignition, simYear(draft)), [grid, draft])
+  const land = useLandAuto(grid)
+  const [rightOpen, setRightOpen] = useState(true)
+  // full screen: only the map and the timeline (browser full screen when allowed, else the window)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [full, setFull] = useState(false)
+  const toggleFull = () => {
+    const next = !full
+    setFull(next)
+    if (next) rootRef.current?.requestFullscreen?.().catch(() => {})
+    else if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  }
+  useEffect(() => {
+    const onChange = () => { if (!document.fullscreenElement) setFull(false) }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+  useEffect(() => {
+    if (!full) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.fullscreenElement) setFull(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [full])
   const infra = useMemo(() => getInfrastructure(region), [region])
   // a run from another working area does not fit this grid (it is reset right after an area change)
   const live = run.live && run.live.config.areaId === draft.areaId ? run.live : null
@@ -214,15 +236,16 @@ export function Command() {
   const evacuated = rec ? rec.evacuations.filter((e) => e.startStep <= head).reduce((s, e) => s + Math.round(e.population * Math.min(1, (head - e.startStep) / Math.max(1, e.doneStep - e.startStep))), 0) : 0
   const lastDecision = decisions[decisions.length - 1]
   const w = live ? weatherAt(live.config, run.headMin) : null
+  const landPanel = <LandSetup grid={grid} land={land} around={around} showTrees={showTrees} setShowTrees={setShowTrees} disabled={run.status === 'running'} />
 
   return (
-    <div className="fg-command flex min-h-full flex-col lg:h-full lg:flex-row">
+    <div ref={rootRef} className={`fg-command flex min-h-full flex-col lg:h-full lg:flex-row ${full ? 'is-full' : ''}`}>
       {/* setup */}
       <aside className="w-full shrink-0 space-y-3 overflow-auto border-b border-line bg-panel p-3 lg:w-[290px] lg:border-b-0 lg:border-r">
         <details className="fg-setting-section" open={setupOpen} onToggle={(e) => setSetupOpen((e.target as HTMLDetailsElement).open)}>
           <summary><span className="flex items-center gap-2"><Flame size={14} className="text-orange" /> Yangın senaryosu</span><ChevronDown size={13} /></summary>
           <div className="fg-setting-content">
-            {setupOpen && <ScenarioSetup grid={grid} region={region} around={around} picking={picking} setPicking={setPicking} showTrees={showTrees} setShowTrees={setShowTrees} weatherHours={72} disabled={run.status === 'running'} />}
+            {setupOpen && <ScenarioSetup grid={grid} region={region} picking={picking} setPicking={setPicking} weatherHours={72} disabled={run.status === 'running'} />}
             {run.status === 'running' && <p className="mt-2 text-[11px] text-muted">Müdahale sürerken senaryo değiştirilemez. Durdurup değiştirin.</p>}
           </div>
         </details>
@@ -355,6 +378,11 @@ export function Command() {
             }
             controls={
               <div className="flex flex-col items-end gap-1">
+                {run.status !== 'idle' && (
+                  <button onClick={toggleFull} aria-pressed={full} className="flex items-center gap-1.5 border border-line2 bg-bg/90 px-2.5 py-1 text-[12px] font-medium text-muted hover:text-ink">
+                    {full ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {full ? 'Tam ekrandan çık' : 'Tam ekran'}
+                  </button>
+                )}
                 <details className="fg-layer-menu"><summary><Layers3 size={13} /> Katmanlar <ChevronDown size={11} /></summary><div>
                   <label><input type="checkbox" checked={showWind} onChange={(e) => setShowWind(e.target.checked)} /><Wind size={14} /> Rüzgar akışı</label>
                   <label><input type="checkbox" checked={landView} onChange={(e) => setLandView(e.target.checked)} /><Layers3 size={14} /> Arazi ve yakıt</label>
@@ -400,7 +428,17 @@ export function Command() {
       </div>
 
       {/* decision log */}
+      {!rightOpen ? (
+        <aside className="fg-command-rail-closed hidden shrink-0 flex-col items-center gap-2 border-l border-line bg-bg py-3 lg:flex lg:w-[44px]">
+          <button className="fg-icon-button" onClick={() => setRightOpen(true)} aria-label="Sağ paneli aç" title="Sağ paneli aç"><PanelRightOpen size={15} /></button>
+        </aside>
+      ) : (
       <aside className="w-full shrink-0 space-y-3 overflow-auto border-t border-line bg-bg p-3 lg:w-[390px] lg:border-l lg:border-t-0">
+        <div className="hidden items-center justify-between lg:flex">
+          <span className="fg-eyebrow">Durum ve kararlar</span>
+          <button className="fg-icon-button" onClick={() => setRightOpen(false)} aria-label="Sağ paneli daralt" title="Sağ paneli daralt"><PanelRightClose size={15} /></button>
+        </div>
+        {!live && landPanel}
         {live && stat && w && (
           <Panel title={`Saha durumu · ${Tm(run.headMin)}`}>
             <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
@@ -469,7 +507,9 @@ export function Command() {
             </ul>
           </Panel>
         )}
+        {live && landPanel}
       </aside>
+      )}
     </div>
   )
 }

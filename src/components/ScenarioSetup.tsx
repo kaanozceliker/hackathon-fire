@@ -56,26 +56,11 @@ export function useIgnitionPicker(grid: Grid, region: Region) {
 }
 
 /**
- * The fire scenario set-up: working area, ignition point, starting intensity, weather (fixed or Open-Meteo),
- * terrain and fuel (from data or by hand) and the surroundings of the ignition point. Edits the store's draft.
+ * "Arazi ve yakıt" from data: slope from the DEM, fuel dryness from the latest Sentinel-2 pass, written to the draft
+ * (null = set by hand). Lives in the page so it keeps working while its panel is closed.
  */
-export function ScenarioSetup({ grid, region, around, picking, setPicking, showTrees, setShowTrees, weatherHours, disabled }: {
-  grid: Grid
-  region: Region
-  around: Surroundings
-  picking: boolean
-  setPicking: (v: boolean) => void
-  showTrees: boolean
-  setShowTrees: (v: boolean) => void
-  /** Hours of weather to fetch from Open-Meteo. */
-  weatherHours: number
-  disabled?: boolean
-}) {
-  const { draft, patchDraft, notify, setDraftArea, loadPreset, active } = useStore()
-  const [weatherMode, setWeatherMode] = useState<'fixed' | 'live'>(draft.weather ? 'live' : 'fixed')
-  const [startIso, setStartIso] = useState(() => draft.weather?.startIso ?? currentLocalHour())
-  const [weatherBusy, setWeatherBusy] = useState(false)
-  // "Arazi ve yakıt" from data: slope from the DEM, fuel dryness from the latest Sentinel-2 pass (null = set by hand)
+export function useLandAuto(grid: Grid) {
+  const { draft, patchDraft } = useStore()
   const [landMode, setLandMode] = useState<'auto' | 'manual'>(() => (draft.landAuto === null ? 'manual' : 'auto'))
   const [landBusy, setLandBusy] = useState(false)
   const fireDate = draft.weather?.startIso ?? new Date().toISOString().slice(0, 10)
@@ -105,6 +90,27 @@ export function ScenarioSetup({ grid, region, around, picking, setPicking, showT
       window.clearTimeout(timer)
     }
   }, [landMode, grid, draft.ignition, fireDate, patchDraft])
+  return { landMode, setLandMode, landBusy, originVeg }
+}
+export type LandAuto = ReturnType<typeof useLandAuto>
+
+/**
+ * The fire scenario set-up: working area, ignition point, starting intensity and weather (fixed or Open-Meteo).
+ * Edits the store's draft.
+ */
+export function ScenarioSetup({ grid, region, picking, setPicking, weatherHours, disabled }: {
+  grid: Grid
+  region: Region
+  picking: boolean
+  setPicking: (v: boolean) => void
+  /** Hours of weather to fetch from Open-Meteo. */
+  weatherHours: number
+  disabled?: boolean
+}) {
+  const { draft, patchDraft, notify, setDraftArea, loadPreset, active } = useStore()
+  const [weatherMode, setWeatherMode] = useState<'fixed' | 'live'>(draft.weather ? 'live' : 'fixed')
+  const [startIso, setStartIso] = useState(() => draft.weather?.startIso ?? currentLocalHour())
+  const [weatherBusy, setWeatherBusy] = useState(false)
   useEffect(() => {
     // a scenario loaded from elsewhere (area change, scenario picker) decides the mode
     setWeatherMode(draft.weather ? 'live' : 'fixed')
@@ -188,6 +194,23 @@ export function ScenarioSetup({ grid, region, around, picking, setPicking, showT
         </Panel></div>
       </details>
 
+    </fieldset>
+  )
+}
+
+/** Terrain and fuel (from data or by hand) and the surroundings of the ignition point. */
+export function LandSetup({ grid, land, around, showTrees, setShowTrees, disabled }: {
+  grid: Grid
+  land: LandAuto
+  around: Surroundings
+  showTrees: boolean
+  setShowTrees: (v: boolean) => void
+  disabled?: boolean
+}) {
+  const { draft, patchDraft } = useStore()
+  const { landMode, setLandMode, landBusy, originVeg } = land
+  return (
+    <fieldset disabled={disabled} className="space-y-3 disabled:opacity-60">
       <details className="fg-setting-section"><summary><span className="flex items-center gap-2"><Trees size={14} className="text-forest" /> Arazi ve yakıt</span><ChevronDown size={13} /></summary><div className="fg-setting-content"><Panel>
         <div className="space-y-2.5">
           <Segmented<'auto' | 'manual'> label="Arazi ve yakıt kaynağı" value={landMode} onChange={(v) => { setLandMode(v); if (v === 'manual') patchDraft({ landAuto: null }) }} options={[{ value: 'auto', label: 'Otomatik' }, { value: 'manual', label: 'Elle' }]} />

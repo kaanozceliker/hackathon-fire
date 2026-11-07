@@ -579,13 +579,15 @@ export class ResponseRun {
     const pool = sources.length ? sources : this.infra.water
     const w = pool.reduce((a, b) => (haversineM(b.pos, p) < haversineM(a.pos, p) ? b : a), pool[0])
     const km = w ? haversineM(w.pos, p) / 1000 : 8
-    r.nextDropStep = this.step + Math.max(1, Math.round(((2 * km) / air.kmh) * 6 + air.fillMin / STEP_MIN))
+    // whole steps, rounded up: the round trip and the fill must fit in the cycle
+    r.nextDropStep = this.step + Math.max(1, Math.ceil(((2 * km) / air.kmh) * 6 + air.fillMin / STEP_MIN - 0.05))
     // the round trip as three legs (fly out, fill, fly back) so the map shows the aircraft going for water
     if (w) {
-      // legs scaled to fit exactly between this drop and the next (the engine rounds the cycle to whole steps)
-      const k = (r.nextDropStep - this.step) / Math.max(1e-6, 2 * Math.max(0.05, (km / air.kmh) * 6) + air.fillMin / STEP_MIN)
-      const fly = Math.max(0.05, (km / air.kmh) * 6) * k
-      const fill = (air.fillMin / STEP_MIN) * k
+      // legs fill the cycle exactly. A near source makes the real flight a minute or two, a blink in playback:
+      // each flight leg gets at least 30% of the cycle so the aircraft is seen flying instead of jumping
+      const cycle = r.nextDropStep - this.step
+      const fly = Math.min(cycle * 0.45, Math.max(cycle * 0.3, (km / air.kmh) * 6))
+      const fill = cycle - 2 * fly
       const tr = this.tracks.find((t) => t.id === r.id)!
       const s0 = this.step
       tr.moves.push({ fromStep: s0, toStep: s0 + fly, path: [p, w.pos], purpose: 'water' })

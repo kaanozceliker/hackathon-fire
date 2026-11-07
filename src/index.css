@@ -381,6 +381,7 @@ summary::-webkit-details-marker { display: none; }
   .fg-insight-rail { width: 300px; min-height: 0; border-left: 1px solid var(--color-line); border-top: 0; }
   .fg-command > aside:first-child { width: 258px; }
   .fg-command > aside:last-child { width: 310px; }
+  .fg-command > aside.fg-command-rail-closed { width: 44px; }
   .fg-command-map { min-height: 0; }
   .fg-command > div { container-type: inline-size; }
   .fg-drill-workspace > aside:first-child { width: 278px; }
@@ -419,3 +420,9 @@ summary::-webkit-details-marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Komuta Merkezi full screen: only the map and the timeline */
+.fg-command.is-full { position: fixed; inset: 0; z-index: 1500; height: 100%; min-height: 0; flex-direction: column; background: var(--color-bg); }
+.fg-command.is-full > aside, .fg-command.is-full .fg-command-metrics, .fg-command.is-full .fg-command-situation, .fg-command.is-full .fg-scene-notice { display: none; }
+.fg-command.is-full > div { flex: 1 1 auto; min-height: 0; }
+.fg-command.is-full .fg-command-map { min-height: 0; }
