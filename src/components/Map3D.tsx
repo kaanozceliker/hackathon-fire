@@ -8,7 +8,8 @@ import type { Grid, ResourceKind, ResponseRecord, Settlement, SimResult } from '
 
 /**
  * 3D view on MapTiler (Satellite Hybrid style with terrain). The fire, burned area and safety lines are painted
- * into a texture laid over the terrain; resource icons move along their routes from the playback clock.
+ * into a texture laid over the terrain; resource icons move along their routes from the playback clock; buildings
+ * stand as 3D blocks that show the fire reaching them.
  * Needs VITE_MAPTILER_KEY in .env (a public, browser-side key: restrict it to your domains in MapTiler Cloud).
  */
 
@@ -106,7 +107,91 @@ export function Map3D(props: Map3DProps) {
       map.addSource('fg-fire', { type: 'canvas', canvas: tex, coordinates: [[w, n], [e, n], [e, s], [w, s]], animate: true })
       map.addLayer({ id: 'fg-fire', type: 'raster', source: 'fg-fire', paint: { 'raster-opacity': 0.95, 'raster-fade-duration': 0 } })
       map.fitBounds([[w, s], [e, n]], { padding: 40, pitch: 62, bearing: -20, duration: 0 })
+
+      // 3D buildings from MapTiler's vector tiles (OpenStreetMap footprints and heights): grey blocks that turn blue
+      // under the cursor, glow orange while the fire is on them and go dark once it has passed
+      map.addSource('fg-buildings', { type: 'vector', url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${KEY}` })
+      map.addLayer({
+        id: 'fg-buildings',
+        type: 'fill-extrusion',
+        source: 'fg-buildings',
+        'source-layer': 'building',
+        minzoom: 13,
+        filter: ['!=', ['get', 'hide_3d'], true],
+        paint: {
+          'fill-extrusion-color': [
+            'case',
+            ['boolean', ['feature-state', 'hover'], false], '#1e90ff',
+            ['boolean', ['feature-state', 'fire'], false], '#ff7a2b',
+            ['boolean', ['feature-state', 'burned'], false], '#3b2b27',
+            '#d6d4cf',
+          ],
+          'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, ['coalesce', ['get', 'render_height'], 6]],
+          'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, ['coalesce', ['get', 'render_min_height'], 0]],
+          'fill-extrusion-opacity': 0.92,
+          'fill-extrusion-vertical-gradient': true,
+        },
+      })
+      let hovered: string | number | null = null
+      const setHover = (id: string | number | null) => {
+        if (hovered !== null) map.setFeatureState({ source: 'fg-buildings', sourceLayer: 'building', id: hovered }, { hover: false })
+        hovered = id
+        if (id !== null) map.setFeatureState({ source: 'fg-buildings', sourceLayer: 'building', id }, { hover: true })
+      }
+      map.on('mousemove', 'fg-buildings', (ev) => {
+        const f = ev.features?.[0]
+        map.getCanvas().style.cursor = 'pointer'
+        setHover(f?.id ?? null)
+      })
+      map.on('mouseleave', 'fg-buildings', () => {
+        map.getCanvas().style.cursor = ''
+        setHover(null)
+      })
+      // a building's card: its height and when the fire reaches it in this run
+      map.on('click', 'fg-buildings', (ev) => {
+        const f = ev.features?.[0]
+        if (!f) return
+        const h = Math.round(Number(f.properties?.render_height ?? 0))
+        const { result } = propsRef.current
+        const c = cellOfLL(ev.lngLat.lat, ev.lngLat.lng)
+        const t = result && c >= 0 ? result.ignitionStep[c] : -1
+        const fire = !result ? 'Simülasyon yok.' : t >= 0 ? `Yangın bu yapıya T+${Math.floor((t * 10) / 60)}:${String((t * 10) % 60).padStart(2, '0')}'da ulaşıyor.` : 'Bu çalıştırmada yangın bu yapıya ulaşmıyor.'
+        new maptilersdk.Popup({ closeButton: true, offset: 8 })
+          .setLngLat(ev.lngLat)
+          .setHTML(`<div style="font:13px 'Barlow Semi Condensed',sans-serif;color:#17231c"><b>Yapı</b>${h ? ` · ~${h} m` : ''}<br/>${fire}</div>`)
+          .addTo(map)
+      })
+      buildingsReady = true
     })
+    let buildingsReady = false
+    const cellOfLL = (lat: number, lon: number) => {
+      const col = Math.floor((lon - grid.lon0) / grid.dLon)
+      const row = Math.floor((grid.lat0 - lat) / grid.dLat)
+      return col < 0 || row < 0 || col >= cols || row >= rows ? -1 : row * cols + col
+    }
+    // fire state of the buildings in view, refreshed a few times a second
+    const marked = new Map<string | number, 'fire' | 'burned'>()
+    let lastMark = 0
+    const markBuildings = (step: number) => {
+      const { result } = propsRef.current
+      if (!buildingsReady || !result || !map.getLayer('fg-buildings')) return
+      const seen = new Set<string | number>()
+      for (const f of map.queryRenderedFeatures({ layers: ['fg-buildings'] })) {
+        if (f.id === undefined || seen.has(f.id)) continue
+        seen.add(f.id)
+        const g = f.geometry
+        const p = g.type === 'Polygon' ? g.coordinates[0][0] : g.type === 'MultiPolygon' ? g.coordinates[0][0][0] : null
+        if (!p) continue
+        const c = cellOfLL(p[1], p[0])
+        if (c < 0) continue
+        const t = result.ignitionStep[c]
+        const state = t >= 0 && t <= step ? (step < result.burnoutStep[c] ? 'fire' : 'burned') : null
+        if (marked.get(f.id) === state) continue
+        map.setFeatureState({ source: 'fg-buildings', sourceLayer: 'building', id: f.id }, { fire: state === 'fire', burned: state === 'burned' })
+        if (state) marked.set(f.id, state)
+        else marked.delete(f.id)
+      }
+    }
 
     // settlements and the ignition point
     const fixed: maptilersdk.Marker[] = []
@@ -132,6 +217,10 @@ export function Map3D(props: Map3DProps) {
         lastStep = step
         lastPaint = now
         paint(step)
+      }
+      if (now - lastMark > 400) {
+        lastMark = now
+        markBuildings(step)
       }
       const seen = new Set<string>()
       for (const tr of rec?.tracks ?? []) {
