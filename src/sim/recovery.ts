@@ -4,6 +4,7 @@ import { haversineM } from './geo'
 import { weatherAt } from './weather'
 import { regionById } from '../data/regions'
 import { SPECIES } from '../data/species.generated'
+import { SPECIES_LIST, speciesById } from '../data/vegetation'
 import { SECTORS, type Sector, type SimResult } from './types'
 
 /**
@@ -31,6 +32,8 @@ export interface RecoveryZone {
   main_aspect: string
   seed_source_nearby_pct: number
   settlements_within_1km: string[]
+  /** Estimated species of the burned cells, % (from the regional vegetation belts). */
+  species_burned: { name: string; scientific: string; pct: number; regeneration: string }[]
 }
 
 export interface RecoveryContext {
@@ -103,7 +106,7 @@ export function recoveryContext(res: SimResult): RecoveryContext {
     if (!dx && !dy) return 0
     return Math.round((((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360) / 45) % 8
   }
-  const z = SECTORS.map(() => ({ n: 0, forest: 0, pine: 0, elev: 0, slope: 0, steep: 0, ax: 0, ay: 0, seed: 0 }))
+  const z = SECTORS.map(() => ({ n: 0, forest: 0, pine: 0, elev: 0, slope: 0, steep: 0, ax: 0, ay: 0, seed: 0, sp: new Map<number, number>() }))
   for (let i = 0; i < ig.length; i++) {
     if (ig[i] < 0) continue
     const x = i % cols
@@ -120,6 +123,7 @@ export function recoveryContext(res: SimResult): RecoveryContext {
     // aspect: the way the slope faces (downhill), as a vector
     k.ax += -gx
     k.ay += gy
+    if (g.species[i]) k.sp.set(g.species[i], (k.sp.get(g.species[i]) ?? 0) + 1)
     if (kind[i] >= 3) {
       k.forest++
       if (kind[i] === 4) k.pine++
@@ -160,6 +164,7 @@ export function recoveryContext(res: SimResult): RecoveryContext {
       steep_share_pct: Math.round((k.steep / k.n) * 100),
       main_aspect: compass(((Math.atan2(k.ax, -k.ay) * 180) / Math.PI + 360) % 360),
       seed_source_nearby_pct: k.forest ? Math.round((k.seed / k.forest) * 100) : 0,
+      species_burned: [...k.sp.entries()].sort((a, b) => b[1] - a[1]).map(([id, c]) => ({ name: speciesById(id).name, scientific: speciesById(id).scientific, pct: Math.round((c / Math.max(1, [...k.sp.values()].reduce((x, y) => x + y, 0))) * 100), regeneration: speciesById(id).regenNote })).filter((x) => x.pct >= 3),
       settlements_within_1km: region.settlements.filter((st) => haversineM(st.pos, centre) < 1000 + st.radiusM * 2).map((st) => st.name),
     })
   })
@@ -184,13 +189,16 @@ export function recoveryContext(res: SimResult): RecoveryContext {
 /** Fallback plan from fixed rules, used when the AI is unavailable. */
 export function ruleRecovery(ctx: RecoveryContext): RecoveryPlan {
   const zones = ctx.zones.map((z) => {
-    const action: RecoveryAction = z.steep_share_pct >= 35 ? 'erozyon_onlemi' : z.forest_ha < 5 ? 'izleme' : z.pine_share_pct >= 50 && z.seed_source_nearby_pct >= 30 ? 'dogal_yenilenme' : 'dikim'
+    const dom = z.species_burned[0]
+    const domSp = SPECIES_LIST.find((s) => s.name === dom?.name)
+    const natural = domSp ? (domSp.regen === 'surgun' || (domSp.regen === 'tohum' && z.seed_source_nearby_pct >= 30)) : z.pine_share_pct >= 50 && z.seed_source_nearby_pct >= 30
+    const action: RecoveryAction = z.steep_share_pct >= 35 ? 'erozyon_onlemi' : z.forest_ha < 5 ? 'izleme' : natural ? 'dogal_yenilenme' : 'dikim'
     const species = z.mean_elevation_m < 800 ? ['Kızılçam (Pinus brutia)', 'Pırnal meşesi (Quercus ilex)', 'Sandal (Arbutus andrachne)'] : z.mean_elevation_m < 1400 ? ['Karaçam (Pinus nigra)', 'Saçlı meşe (Quercus cerris)'] : ['Toros sediri (Cedrus libani)', 'Karaçam (Pinus nigra)']
     const rationale = {
       erozyon_onlemi: `Yanan alanın %${z.steep_share_pct}'i %30'dan dik; ilk yağışlarda toprak kaybı riski yüksek.`,
       izleme: 'Yanan orman alanı küçük; doğal süreç izlenmeli.',
-      dogal_yenilenme: `Alan çoğunlukla kızılçam (%${z.pine_share_pct}) ve yanmamış ormana yakın (%${z.seed_source_nearby_pct}); kozalaklardan tohumla kendiliğinden yenilenir.`,
-      dikim: `Tohum kaynağı uzak (%${z.seed_source_nearby_pct}) veya maki ağırlıklı; dikim/tohumlama gerekir.`,
+      dogal_yenilenme: `Yanan alan ağırlıkla ${dom?.name ?? 'kızılçam'} (%${dom?.pct ?? z.pine_share_pct}). ${domSp?.regenNote ?? ''} Tohum kaynağına yakınlık %${z.seed_source_nearby_pct}.`,
+      dikim: `Yanan alan ağırlıkla ${dom?.name ?? 'orman'} (%${dom?.pct ?? 0}). ${domSp?.regenNote ?? 'Tohum kaynağı uzak.'} Tohum kaynağına yakınlık %${z.seed_source_nearby_pct}.`,
     }[action]
     return { sector: z.sector, action, species: action === 'izleme' ? [] : species, timing: action === 'erozyon_onlemi' ? 'İlk sonbahar yağmurlarından önce; dikim sonraki kış' : action === 'dikim' ? 'İlk kış (Kasım–Mart)' : 'İlk 2–3 yıl koruma ve izleme', rationale }
   })

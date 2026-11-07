@@ -85,7 +85,11 @@ export function measureSize(m: Measure, cellM: number): string {
 const HA_CELL = (cellM: number) => (cellM * cellM) / 10000
 const T = (step: number) => `T+${fmtDuration(step * 10)}`
 
-export function buildCandidates(res: SimResult, infra: Infrastructure): Measure[] {
+/**
+ * `wide`: a programme over the whole burned area (used by the "what if" of a past fire) – fuel breaks every few
+ * hours of the first fire's path and thinning in all of its forest, instead of only around the ignition.
+ */
+export function buildCandidates(res: SimResult, infra: Infrastructure, wide = false): Measure[] {
   const g = res.grid
   const { cols, rows, kind, elev, cellM } = g
   const ig = res.ignitionStep
@@ -156,7 +160,10 @@ export function buildCandidates(res: SimResult, infra: Infrastructure): Measure[
   const ax = sx / len
   const ay = sy / len
   const heading = ((Math.atan2(ax, -ay) * 180) / Math.PI + 360) % 360
-  for (const [k, hours] of [[1, 2], [2, 4]] as const) {
+  const lastStep = ig.reduce((a, b) => Math.max(a, b), 0)
+  const stripHours = wide ? [2, 4, 6, 9, 12, 15].filter((h) => h * 6 < lastStep) : [2, 4]
+  for (const [k0, hours] of stripHours.entries()) {
+    const k = k0 + 1
     // distance along the axis the fire had reached by then
     let d = 0
     for (let i = 0; i < ig.length; i++)
@@ -190,6 +197,10 @@ export function buildCandidates(res: SimResult, infra: Infrastructure): Measure[
   const thin: number[] = []
   for (let i = 0; i < ig.length; i++) {
     if (kind[i] !== 4) continue
+    if (wide) {
+      if (burnedNear(i, 1)) thin.push(i)
+      continue
+    }
     const px = (i % cols) - ox
     const py = ((i / cols) | 0) - oy
     if (Math.hypot(px, py) > 10 || px * ax + py * ay < -1) continue
@@ -200,12 +211,12 @@ export function buildCandidates(res: SimResult, infra: Infrastructure): Measure[
       id: 'aralama-1',
       type: 'aralama',
       title: 'Kızılçam meşcerelerinde aralama ve alt yakıt temizliği',
-      where: 'Tutuşma noktasının 1 km çevresi, rüzgar altı',
+      where: wide ? 'Yangın alanındaki bütün orman' : 'Tutuşma noktasının 1 km çevresi, rüzgar altı',
       cells: thin,
       fuelMult: 0.6,
       point: null,
       costK: Math.round(thin.length * haC * 8),
-      evidence: `Yangın bu yoğun çam alanında başladı ve ilk saatte en hızlı burada büyüdü.`,
+      evidence: wide ? `Yangın ormanın ${Math.round(thin.length * haC)} hektarında taç yangınına dönüşebilecek yoğun yakıtla ilerledi.` : `Yangın bu yoğun çam alanında başladı ve ilk saatte en hızlı burada büyüdü.`,
       startGainMin: 0,
     })
 

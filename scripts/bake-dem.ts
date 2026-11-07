@@ -10,7 +10,11 @@
 import { writeFileSync } from 'node:fs'
 import { fromUrl } from 'geotiff'
 import { REGIONS } from '../src/data/regions'
-import { CELL_M, GRID_COLS, GRID_ROWS } from '../src/sim/terrain'
+import { CELL_M, gridDims } from '../src/sim/terrain'
+// only the areas named on the command line (e.g. `npm run bake:dem -- menderes`), merged into the existing file
+const ONLY = process.argv.slice(2)
+const AREAS = ONLY.length ? REGIONS.filter((r) => ONLY.includes(r.id)) : REGIONS
+
 
 const BASE = 'https://copernicus-dem-30m.s3.amazonaws.com'
 const tile = (lat: number, lon: number) => {
@@ -19,8 +23,7 @@ const tile = (lat: number, lon: number) => {
 }
 
 async function bake(region: (typeof REGIONS)[number]) {
-  const cols = GRID_COLS
-  const rows = GRID_ROWS
+  const { cols, rows } = gridDims(region.id)
   const n = cols * rows
   const dLat = CELL_M / 111320
   const dLon = CELL_M / (111320 * Math.cos((region.center[0] * Math.PI) / 180))
@@ -69,8 +72,8 @@ async function bake(region: (typeof REGIONS)[number]) {
   return Buffer.from(out.buffer).toString('base64')
 }
 
-const result: Record<string, string> = {}
-for (const r of REGIONS) {
+const result: Record<string, string> = ONLY.length ? { ...(await import('../src/data/elevation.generated')).ELEVATION } : {}
+for (const r of AREAS) {
   console.log(`baking ${r.id}`)
   result[r.id] = await bake(r)
 }

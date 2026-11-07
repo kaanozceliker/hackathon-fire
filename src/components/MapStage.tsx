@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { Layers } from 'lucide-react'
 import type { Grid, ResponseRecord, SimConfig, SimResult } from '../sim/types'
 import { WindParticleLayer } from './WindParticleLayer'
+import { speciesById } from '../data/vegetation'
 import { SmokeLayer } from './SmokeLayer'
 import { ResponseLayer } from './ResponseLayer'
 import { aqiOf, computeSmoke, pmAt } from '../sim/smoke'
@@ -244,6 +245,7 @@ export function MapStage(p: MapStageProps) {
           {hover ? (
             <>
               <div className="font-semibold">{KIND_LABEL[hover.kind]}</div>
+              {hover.species > 0 && <div className="text-forest">{speciesById(hover.species).name} <span className="text-muted">(tahmini)</span></div>}
               <div className="text-muted">
                 {hover.lat.toFixed(4)}°K, {hover.lon.toFixed(4)}°D
               </div>

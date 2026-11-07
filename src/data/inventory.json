@@ -1,0 +1,24 @@
+{
+  "_aciklama": "Müdahale kaynakları envanteri. Komuta Merkezi simülasyonu ve yapay zeka komutanı bu sayılarla çalışır. Gerçek değerleri OGM bölge müdürlüğünden ve belediye itfaiyelerinden alıp buraya girin; 'istasyonlar' altında istasyon adını OSM'deki adla (haritadaki ipucu) yazın. Sayılar varsayılan olarak tüm bölgelere uygulanır, 'bolgeler' altında bölge bazında değiştirilebilir.",
+  "_durum": "yaklaşık",
+  "varsayilan": {
+    "istasyon_arazoz": 3,
+    "istasyon_is_makinesi": 0,
+    "is_makinesi_olan_ilk_istasyon_sayisi": 2,
+    "helikopter": 3,
+    "helikopter_varis_dk": 30,
+    "ucak": 1,
+    "ucak_varis_dk": 60,
+    "takviye": [
+      { "varis_saat": 3, "arazoz": 4, "is_makinesi": 0 },
+      { "varis_saat": 6, "arazoz": 2, "is_makinesi": 1 }
+    ]
+  },
+  "bolgeler": {
+    "mugla": { "istasyonlar": {} },
+    "izmir": { "istasyonlar": {} },
+    "antalya": { "istasyonlar": {} },
+    "canakkale": { "istasyonlar": {} },
+    "balikesir": { "istasyonlar": {} }
+  }
+}

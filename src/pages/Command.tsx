@@ -12,6 +12,7 @@ import { lineColor } from '../components/ResponseLayer'
 import { regionById } from '../data/regions'
 import { getInfrastructure } from '../data/infrastructure'
 import { getGrid } from '../sim/gridCache'
+import { inventoryFor } from '../data/inventory'
 import { compass, fmtDuration } from '../sim/geo'
 import { activeMove, alongPath } from '../lib/tracks'
 import { weatherAt } from '../sim/weather'
@@ -598,7 +599,7 @@ function paintMeasure(ctx: CanvasRenderingContext2D, grid: SimResult['grid'], m:
 }
 
 /** Prevention measures on the map: patterned areas, numbered tags, and a card describing the measure on click. */
-function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = false }: { grid: SimResult['grid']; measures: Measure[]; plan: PreventionPlan; open: string | null; setOpen: (id: string | null) => void; faded?: boolean }) {
+export function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = false }: { grid: SimResult['grid']; measures: Measure[]; plan: PreventionPlan; open: string | null; setOpen: (id: string | null) => void; faded?: boolean }) {
   const rank = new Map(plan.selected.map((x) => [x.id, x]))
   const url = useMemo(() => {
     const c = document.createElement('canvas')
@@ -659,7 +660,7 @@ function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = false }:
   )
 }
 
-function PreventionPanel({ prev, cellM, canRun, onRun, onOpen, open }: { prev: { cands: Measure[]; plan: PreventionPlan; source: 'ai' | 'rules'; model?: string; reason?: string }; cellM: number; canRun: boolean; onRun: () => void; onOpen: (id: string) => void; open: string | null }) {
+export function PreventionPanel({ prev, cellM, canRun, onRun, onOpen, open }: { prev: { cands: Measure[]; plan: PreventionPlan; source: 'ai' | 'rules'; model?: string; reason?: string }; cellM: number; canRun: boolean; onRun: () => void; onOpen: (id: string) => void; open: string | null }) {
   const chosen = [...prev.plan.selected].sort((a, b) => a.priority - b.priority).map((x) => ({ x, m: prev.cands.find((c) => c.id === x.id)! })).filter((r) => r.m)
   const cost = chosen.reduce((s, r) => s + r.m.costK, 0)
   return (
@@ -815,7 +816,7 @@ function DecisionCard({ d, open, onToggle }: { d: Decision; open: boolean; onTog
 function ResourcesPanel({ rec, step }: { rec: ResponseRecord; step: number }) {
   const rows = rec.tracks.map((t) => ({ t, p: at(t.points, step) }))
   return (
-    <Panel title="Kaynaklar" pad={false}>
+    <Panel title="Kaynaklar" pad={false} action={<span className="text-[11px] text-muted" title="Gerçek sayıları src/data/inventory.json dosyasına girin">envanter: {inventoryFor('').status}</span>}>
       <ul className="divide-y divide-line">
         {rows.map(({ t, p }) => {
           const { Icon, color } = KIND[t.kind]

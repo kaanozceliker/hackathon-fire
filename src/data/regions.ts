@@ -97,6 +97,21 @@ export const REGIONS: Region[] = [
   },
 ]
 
+REGIONS.push({
+  id: 'menderes',
+  name: 'İzmir / Menderes–Seferihisar',
+  province: 'İzmir',
+  center: [38.113, 26.869],
+  risk: 78,
+  forestKm2: 900,
+  seed: 7311,
+  // estimated ignition of the 29 June 2025 fire (see Geçmişteki Yangınlar)
+  defaultIgnition: [38.1852, 26.8685],
+  weather: { temperatureC: 34, humidityPct: 24, windSpeedKmh: 30, windFromDeg: 0, precipMmH: 0 },
+  note: '29 Haziran 2025 yangınının yaşandığı Menderes–Seferihisar arasındaki çam ve maki kaplı tepeler.',
+  settlements: osmSettlements('menderes'),
+})
+
 export const regionById = (id: string): Region => REGIONS.find((r) => r.id === id) ?? REGIONS[0]
 
 export function defaultConfig(region: Region): SimConfig {

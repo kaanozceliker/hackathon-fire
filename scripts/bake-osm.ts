@@ -12,7 +12,13 @@
 import { writeFileSync } from 'node:fs'
 import { REGIONS } from '../src/data/regions'
 import { LANDCOVER } from '../src/data/landcover.generated'
-import { CELL_M, GRID_COLS, GRID_ROWS } from '../src/sim/terrain'
+import { CELL_M, GRID_COLS as DEF_COLS, GRID_ROWS as DEF_ROWS, gridDims } from '../src/sim/terrain'
+let GRID_COLS = DEF_COLS
+let GRID_ROWS = DEF_ROWS
+// only the areas named on the command line (e.g. `npm run bake:osm -- menderes`), merged into the existing file
+const ONLY = process.argv.slice(2)
+const AREAS = ONLY.length ? REGIONS.filter((r) => ONLY.includes(r.id)) : REGIONS
+
 import { haversineM } from '../src/sim/geo'
 import type { BakedEdge, BakedLatLon, BakedNode, BakedRegion, BakedSettlement, BakedWater } from '../src/data/baked'
 
@@ -102,6 +108,7 @@ const ROAD_TYPE =(hw: string): BakedEdge['type'] =>
 const FALLBACK_NAME = { highway: 'İsimsiz ana yol', road: 'İsimsiz yol', forest: 'Orman yolu' }
 
 async function bake(region: (typeof REGIONS)[number]): Promise<BakedRegion> {
+  ;({ cols: GRID_COLS, rows: GRID_ROWS } = gridDims(region.id))
   const g = gridOf(region.center)
   const kinds = (() => {
     const bin = atob(LANDCOVER[region.id])
@@ -380,8 +387,8 @@ out skel qt;`)
   return { settlements, nodes, edges: outEdges, water }
 }
 
-const out: Record<string, BakedRegion> = {}
-for (const r of REGIONS) {
+const out: Record<string, BakedRegion> = ONLY.length ? { ...(await import('../src/data/osm.generated')).OSM } : {}
+for (const r of AREAS) {
   console.log(`baking ${r.id}`)
   out[r.id] = await bake(r)
   await new Promise((res) => setTimeout(res, 2000))

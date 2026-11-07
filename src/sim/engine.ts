@@ -1,4 +1,5 @@
 import { hash3 } from './rng'
+import { speciesById } from '../data/vegetation'
 import { cellCenter, cellOf } from './terrain'
 import { haversineM } from './geo'
 import { cellWeather, type CellWeather } from './weather'
@@ -39,7 +40,9 @@ export function fuelOf(grid: Grid, i: number, fuelLoad: number): number {
   // Built-up land: gardens and the odd structure can catch at the wildland edge, but streets and buildings do not
   // carry a forest-type fire front.
   if (k === 1) return 0.05
-  return clamp(grid.veg[i] * fuelLoad * 1.15, 0.05, 1)
+  // species: resinous pine and maquis carry fire more readily than oak, fir or sweetgum
+  const sp = grid.species?.[i] ? speciesById(grid.species[i]).flammability : 1
+  return clamp(grid.veg[i] * fuelLoad * 1.15 * sp, 0.05, 1)
 }
 
 /** How strongly a burning cell pushes fire into its neighbours. Burning built-up cells barely propagate. */

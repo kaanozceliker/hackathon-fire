@@ -13,6 +13,7 @@
     "bake:dem": "tsx scripts/bake-dem.ts",
     "bake:osm": "tsx scripts/bake-osm.ts",
     "bake:species": "tsx scripts/bake-species.ts",
+    "bake:history": "tsx scripts/bake-history.ts",
     "bake": "npm run bake:landcover && npm run bake:dem && npm run bake:osm && npm run bake:species"
   },
   "dependencies": {

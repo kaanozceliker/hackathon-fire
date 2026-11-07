@@ -25,6 +25,7 @@ export interface CellInfo {
   elev: number
   kind: number
   veg: number
+  species: number
   igniteMin: number | null
 }
 
@@ -95,6 +96,7 @@ export class FireCanvasLayer extends L.Layer {
       elev: grid.elev[i],
       kind: grid.kind[i],
       veg: grid.veg[i],
+      species: grid.species?.[i] ?? 0,
       igniteMin: ig >= 0 && result ? ig * result.stepMin : null,
     }
   }

@@ -1,11 +1,17 @@
 import { fbm } from './rng'
 import type { Grid, Settlement } from './types'
 import { haversineM } from './geo'
+import { speciesFor } from '../data/vegetation'
 import { LANDCOVER } from '../data/landcover.generated'
 import { ELEVATION } from '../data/elevation.generated'
 
 export const GRID_COLS = 130
 export const GRID_ROWS = 100
+/** Areas with their own grid size (cols × rows of 110 m cells); others use GRID_COLS × GRID_ROWS. */
+const GRID_DIMS: Record<string, { cols: number; rows: number }> = {
+  menderes: { cols: 110, rows: 210 },
+}
+export const gridDims = (areaId: string) => GRID_DIMS[areaId] ?? { cols: GRID_COLS, rows: GRID_ROWS }
 export const CELL_M = 110
 
 /**
@@ -14,8 +20,7 @@ export const CELL_M = 110
  * area (scripts/bake-landcover.ts, scripts/bake-dem.ts); otherwise a synthetic, reproducible landscape is used.
  */
 export function buildGrid(areaId: string, center: [number, number], seed: number, settlements: Settlement[]): Grid {
-  const cols = GRID_COLS
-  const rows = GRID_ROWS
+  const { cols, rows } = gridDims(areaId)
   const dLat = CELL_M / 111320
   const dLon = CELL_M / (111320 * Math.cos((center[0] * Math.PI) / 180))
   const lat0 = center[0] + (rows * dLat) / 2
@@ -88,7 +93,28 @@ export function buildGrid(areaId: string, center: [number, number], seed: number
       kind[i] = veg[i] < 0.22 ? 2 : veg[i] < 0.5 ? 3 : 4
     }
   }
-  return { areaId, cols, rows, cellM: CELL_M, lat0, lon0, dLat, dLon, elev, veg, kind }
+  // species from the regional vegetation belts (estimated): elevation, aspect, nearness to water
+  const species = new Uint8Array(n)
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++) {
+      const i = y * cols + x
+      if (kind[i] !== 3 && kind[i] !== 4) continue
+      const e = (dx: number, dy: number) => elev[Math.min(rows - 1, Math.max(0, y + dy)) * cols + Math.min(cols - 1, Math.max(0, x + dx))]
+      const gx = e(1, 0) - e(-1, 0)
+      const gy = e(0, 1) - e(0, -1)
+      const g = Math.hypot(gx, gy) || 1
+      // downhill direction's north component: slopes facing north have the ground falling towards the north (row up)
+      const aspectNorth = g < 4 ? 0 : -gy / g
+      let nearWater = false
+      for (let dy = -3; dy <= 3 && !nearWater; dy++)
+        for (let dx = -3; dx <= 3; dx++) {
+          const xx = x + dx
+          const yy = y + dy
+          if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && kind[yy * cols + xx] === 0) { nearWater = true; break }
+        }
+      species[i] = speciesFor(areaId, kind[i], elev[i], aspectNorth, nearWater, fbm(x * 0.15, y * 0.15, seed + 123, 2))
+    }
+  return { areaId, cols, rows, cellM: CELL_M, lat0, lon0, dLat, dLon, elev, veg, kind, species }
 }
 
 function decodeElevation(areaId: string, n: number): Int16Array | null {

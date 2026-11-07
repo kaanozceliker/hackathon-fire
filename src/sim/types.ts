@@ -63,6 +63,8 @@ export interface Grid {
   elev: Float32Array // metres
   veg: Float32Array // 0..1
   kind: Uint8Array
+  /** Estimated tree/shrub species per cell (src/data/vegetation.ts), 0 = none. */
+  species: Uint8Array
 }
 
 export interface StepStat {

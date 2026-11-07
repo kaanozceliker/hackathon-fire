@@ -1,4 +1,5 @@
 import { STEP_MIN, fuelOf } from './engine'
+import { speciesById } from '../data/vegetation'
 import { cellWeather, type CellWeather } from './weather'
 import type { LatLon } from './geo'
 import type { SimResult } from './types'
@@ -114,7 +115,9 @@ export function computeSmoke(res: SimResult): SmokeResult {
     const end = Math.max(t + 1, res.burnoutStep[i])
     const kind = g.kind[i]
     const fuel = kind === 1 ? 1 : fuelOf(g, i, res.config.fuelLoad)
-    const kg = CONSUMED_KG_M2[kind] * fuel * g.cellM * g.cellM
+    // species fuel load (t/ha) where known, else by cover; t/ha / 10 = kg/m²
+    const sp = g.species?.[i] ? speciesById(g.species[i]).fuelTHa / 10 : 0
+    const kg = (sp || CONSUMED_KG_M2[kind]) * fuel * g.cellM * g.cellM
     emitStart[i] = t
     emitEnd[i] = end
     biomass[i] = kg / (end - t)

@@ -3,6 +3,7 @@ import { buildHazards, findRoute, type EdgeHazard } from './planner'
 import { compass, fmtDuration, haversineM, type LatLon } from './geo'
 import { cellCenter, cellOf } from './terrain'
 import { weatherAt } from './weather'
+import { inventoryFor } from '../data/inventory'
 import { startHour } from './smoke'
 import { hash3 } from './rng'
 import type { Infrastructure, NetNode } from '../data/infrastructure'
@@ -179,25 +180,30 @@ export class ResponseRun {
     this.lineResist = new Float32Array(n).fill(1)
     this.wetUntil = new Int16Array(n)
     const stations = infra.nodes.filter((x) => x.kind === 'station')
+    // resources from the editable inventory (src/data/inventory.json)
+    const inv = inventoryFor(grid.areaId)
     stations.forEach((stn, i) => {
       const short = stn.name.replace(/ (İtfaiye|Yangın).*$/, '')
-      for (let k = 1; k <= 3; k++) this.addResource(`ekip-${i + 1}-${k}`, `${short} arazöz ${k}`, 'crew', stn.pos, this.startStep)
-      if (i < 2) this.addResource(`dozer-${i + 1}`, `${short} iş makinesi`, 'dozer', stn.pos, this.startStep)
+      for (let k = 1; k <= inv.stationCrews(stn.name, i); k++) this.addResource(`ekip-${i + 1}-${k}`, `${short} arazöz ${k}`, 'crew', stn.pos, this.startStep)
+      for (let k = 1; k <= inv.stationDozers(stn.name, i); k++) this.addResource(`dozer-${i + 1}${k > 1 ? `-${k}` : ''}`, `${short} iş makinesi${k > 1 ? ` ${k}` : ''}`, 'dozer', stn.pos, this.startStep)
     })
-    // aircraft come from a regional base: helicopters half an hour after the response starts, the plane an hour
+    // aircraft come from a regional base, some time after the response starts (and not before T+1:00 / T+1:30)
     const airBase = stations[0]?.pos ?? cellCenter(grid, this.st.origin)
-    for (let k = 1; k <= 3; k++) this.addResource(`heli-${k}`, `Helikopter ${k}`, 'heli', airBase, Math.max(6, this.startStep + 3))
-    this.addResource('ucak-1', 'Söndürme uçağı 1', 'plane', airBase, Math.max(9, this.startStep + 6))
+    for (let k = 1; k <= inv.helicopters; k++) this.addResource(`heli-${k}`, `Helikopter ${k}`, 'heli', airBase, Math.max(6, this.startStep + Math.round(inv.heliArrivalMin / STEP_MIN)))
+    for (let k = 1; k <= inv.planes; k++) this.addResource(`ucak-${k}`, `Söndürme uçağı ${k}`, 'plane', airBase, Math.max(9, this.startStep + Math.round(inv.planeArrivalMin / STEP_MIN)))
     // prevention: a summer pre-positioning base near the forest, staffed from the start of the response
     if (opts.extraBase) {
       for (let k = 1; k <= 2; k++) this.addResource(`on-${k}`, `Ön konuşlanma arazöz ${k}`, 'crew', opts.extraBase, this.startStep)
       this.addResource('on-dozer', 'Ön konuşlanma iş makinesi', 'dozer', opts.extraBase, this.startStep)
     }
-    // reinforcements from neighbouring provinces arrive at the nearest station after 3 h and 6 h
+    // reinforcements from neighbouring provinces arrive at the furthest station
     const reBase = stations[stations.length - 1]?.pos ?? airBase
-    for (let k = 1; k <= 4; k++) this.addResource(`takviye-${k}`, `Takviye arazöz ${k}`, 'crew', reBase, this.startStep + 18)
-    for (let k = 5; k <= 6; k++) this.addResource(`takviye-${k}`, `Takviye arazöz ${k}`, 'crew', reBase, this.startStep + 36)
-    this.addResource('takviye-dozer', 'Takviye iş makinesi', 'dozer', reBase, this.startStep + 36)
+    let rn = 0
+    inv.reinforcements.forEach((t, w) => {
+      const at = this.startStep + Math.round((t.afterH * 60) / STEP_MIN)
+      for (let k = 0; k < t.crews; k++) this.addResource(`takviye-${++rn}`, `Takviye arazöz ${rn}`, 'crew', reBase, at)
+      for (let k = 0; k < t.dozers; k++) this.addResource(`takviye-dozer-${w + 1}-${k + 1}`, `Takviye iş makinesi${t.dozers > 1 ? ` ${k + 1}` : ''}`, 'dozer', reBase, at)
+    })
     this.wasDaylight = this.daylight(0)
   }
 
