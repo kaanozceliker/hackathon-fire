@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import L from 'leaflet'
 import { Marker, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Bot, ChevronDown, ChevronRight, Cpu, Helicopter, Loader2, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Truck } from 'lucide-react'
 import { MapStage } from '../components/MapStage'
+// the 3D view (MapTiler SDK, ~1.3 MB) loads only when chosen
+const Map3D = lazy(() => import('../components/Map3D').then((m) => ({ default: m.Map3D })))
 import { Legend, Panel, Segmented, SliderField, Stat, fmtHa } from '../components/ui'
 import { icons } from '../components/mapIcons'
 import { lineColor } from '../components/ResponseLayer'
 import { regionById } from '../data/regions'
 import { getInfrastructure } from '../data/infrastructure'
 import { getGrid } from '../sim/gridCache'
-import { compass, fmtDuration, haversineM } from '../sim/geo'
+import { compass, fmtDuration } from '../sim/geo'
+import { activeMove, alongPath } from '../lib/tracks'
 import { weatherAt } from '../sim/weather'
 import type { Decision, ResourceKind, ResourceStatus, ResponseRecord, SimResult } from '../sim/types'
 import { useStore } from '../state/store'
@@ -85,6 +88,7 @@ export function Command() {
   const [mode, setMode] = useState<CommanderMode>('ai')
   const [health, setHealth] = useState<AiHealth | null>(null)
   const [compare, setCompare] = useState(false)
+  const [view, setView] = useState<'2d' | '3d'>('2d')
   const [selected, setSelected] = useState<number | null>(null)
   const [saved, setSaved] = useState(false)
 
@@ -164,14 +168,22 @@ export function Command() {
 
       {/* map + incident strip */}
       <div className="flex min-h-[620px] min-w-0 flex-1 flex-col lg:min-h-0">
-        <div className="grid grid-cols-2 gap-x-5 gap-y-2 border-b border-line bg-panel px-4 py-2.5 md:grid-cols-5">
+        <div className="grid grid-cols-2 items-center gap-x-5 gap-y-2 border-b border-line bg-panel px-4 py-2.5 md:grid-cols-6">
           <Stat label="Yanan alan" value={stat ? fmtHa(stat.affectedHa) : '–'} unit="ha" tone="amber" />
           <Stat label="Şu an yanan" value={stat ? fmtHa(stat.burningHa) : '–'} unit="ha" tone="fire" />
           <Stat label="Tahliye edilen" value={rec ? evacuated.toLocaleString('en-US') : '–'} unit="kişi" />
           <Stat label="Müdahalesiz olsaydı" value={done && rec ? fmtHa(rec.baseline.affectedHa) : '–'} unit={done ? 'ha' : ''} hint="Aynı yangın, aynı süre, hiç müdahale olmadan" />
+          <div className="col-span-2 md:order-last md:col-span-1 md:justify-self-end">
+            <Segmented<'2d' | '3d'> label="Harita görünümü" value={view} onChange={setView} options={[{ value: '2d', label: '2B' }, { value: '3d', label: '3B' }]} />
+          </div>
           <Stat label="Kurtarılan alan" value={done && rec && live ? fmtHa(Math.max(0, rec.baseline.affectedHa - live.series[live.series.length - 1].affectedHa)) : '–'} unit={done ? 'ha' : ''} tone="forest" />
         </div>
         <div className="relative min-h-[420px] flex-1">
+          {view === '3d' ? (
+            <Suspense fallback={<div className="flex h-full items-center justify-center bg-bg text-[13px] text-muted"><Loader2 size={16} className="mr-2 animate-spin" />3B harita yükleniyor…</div>}>
+              <Map3D grid={grid} result={live} rec={rec} clockRef={run.clockRef} settlements={region.settlements} ignition={config.ignition} />
+            </Suspense>
+          ) : (
           <MapStage
             grid={grid}
             result={live}
@@ -216,6 +228,7 @@ export function Command() {
             })}
             <Marker position={config.ignition} icon={icons.ignition}><Tooltip direction="top" offset={[0, -12]}>Tutuşma noktası</Tooltip></Marker>
           </MapStage>
+          )}
 
           {/* status */}
           <div className="pointer-events-none absolute left-14 top-2 z-[600] max-w-[420px]">
@@ -282,31 +295,6 @@ export function Command() {
       </aside>
     </div>
   )
-}
-
-/** The latest trip under way at step `s` (a newer order replaces an older trip). */
-function activeMove(moves: ResponseRecord['tracks'][number]['moves'], s: number) {
-  for (let k = moves.length - 1; k >= 0; k--) {
-    const m = moves[k]
-    if (m.fromStep <= s) return s < m.toStep ? m : null
-  }
-  return null
-}
-
-const pathLengths = new WeakMap<[number, number][], number[]>()
-/** Point at fraction `f` (0–1) of a path's length, at even speed. */
-function alongPath(path: [number, number][], f: number): [number, number] {
-  let cum = pathLengths.get(path)
-  if (!cum) {
-    cum = [0]
-    for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + haversineM(path[i - 1], path[i]))
-    pathLengths.set(path, cum)
-  }
-  const target = Math.min(1, Math.max(0, f)) * cum[cum.length - 1]
-  let i = 1
-  while (i < path.length - 1 && cum[i] < target) i++
-  const t = (target - cum[i - 1]) / Math.max(1e-6, cum[i] - cum[i - 1])
-  return [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t]
 }
 
 /**

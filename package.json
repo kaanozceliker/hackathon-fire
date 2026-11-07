@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@fontsource/barlow-semi-condensed": "^5.3.0",
+    "@maptiler/sdk": "^4.2.1",
     "leaflet": "1.9",
     "lucide-react": "^1.70.0",
     "openai": "^7.53.0",
