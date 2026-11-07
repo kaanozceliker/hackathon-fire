@@ -945,7 +945,7 @@ function IncidentStrip({ run, rec, live, onSelect }: { run: ReturnType<typeof us
         <div className="flex items-center gap-1">
           <button onClick={() => run.setPlaying(!run.playing)} disabled={!live} aria-label={run.playing ? 'Duraklat' : 'Oynat'} className="flex h-8 w-8 items-center justify-center bg-forest text-bg hover:bg-forest/85 disabled:opacity-40">{run.playing ? <Pause size={16} /> : <Play size={16} />}</button>
           <div className="flex border border-line2" role="radiogroup" aria-label="Oynatma hızı">
-            {[1, 2, 4, 8].map((s) => (
+            {[0.5, 1, 2, 4, 8].map((s) => (
               <button key={s} role="radio" aria-checked={run.speed === s} onClick={() => run.setSpeed(s)} className={`px-1.5 py-1 text-[11.5px] font-medium ${run.speed === s ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>{s}×</button>
             ))}
           </div>

@@ -564,6 +564,13 @@ export class ResponseRun {
     }
     const p = cellCenter(this.grid, target)
     const air = AIR[r.kind as 'heli' | 'plane']
+    // the head has moved since the aircraft set off: bend the end of the trip that brought it here to this drop
+    // point, so the map shows it flying to where it drops instead of jumping there
+    const trk = this.tracks.find((t) => t.id === r.id)!
+    const lastMove = trk.moves[trk.moves.length - 1]
+    if (lastMove && lastMove.toStep <= this.step + 0.01 && lastMove.toStep >= this.step - 1 && lastMove.path.length > 1) {
+      lastMove.path = [...lastMove.path.slice(0, -1), p]
+    }
     r.pos = p
     this.drop(target, air)
     this.drops.push({ step: this.step, lat: p[0], lon: p[1] })
