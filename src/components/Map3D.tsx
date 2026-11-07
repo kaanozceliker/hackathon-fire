@@ -4,6 +4,7 @@ import '@maptiler/sdk/dist/maptiler-sdk.css'
 import { gridBounds } from '../sim/terrain'
 import { trackPosition } from '../lib/tracks'
 import { lineColor } from './ResponseLayer'
+import { TreeLayer } from './TreeLayer'
 import type { Grid, ResourceKind, ResponseRecord, Settlement, SimResult } from '../sim/types'
 
 /**
@@ -49,6 +50,8 @@ export function Map3D(props: Map3DProps) {
       bearing: -20,
       terrain: true,
       terrainExaggeration: 1.4,
+      // high-DPI screens draw 4× the pixels: cap it, the 3D view stays sharp enough
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
     })
     const { cols, rows } = grid
     const field = document.createElement('canvas')
@@ -100,16 +103,26 @@ export function Map3D(props: Map3DProps) {
       tctx.filter = 'blur(1.5px)'
       tctx.drawImage(field, 0, 0, tex.width, tex.height)
       tctx.filter = 'none'
+      const src = map.getSource('fg-fire') as maptilersdk.CanvasSource | undefined
+      if (src) {
+        src.play()
+        src.pause()
+        map.triggerRepaint()
+      }
     }
     paint(propsRef.current.clockRef.current / 10)
 
     map.on('load', () => {
-      map.addSource('fg-fire', { type: 'canvas', canvas: tex, coordinates: [[w, n], [e, n], [e, s], [w, s]], animate: true })
+      // not animated: the texture is uploaded only when the fire changes (paint), so a still map is not redrawn every frame
+      map.addSource('fg-fire', { type: 'canvas', canvas: tex, coordinates: [[w, n], [e, n], [e, s], [w, s]], animate: false })
       map.addLayer({ id: 'fg-fire', type: 'raster', source: 'fg-fire', paint: { 'raster-opacity': 0.95, 'raster-fade-duration': 0 } })
+      paint(propsRef.current.clockRef.current / 10)
       map.fitBounds([[w, s], [e, n]], { padding: 40, pitch: 62, bearing: -20, duration: 0 })
 
       // 3D buildings from MapTiler's vector tiles (OpenStreetMap footprints and heights): grey blocks that turn blue
       // under the cursor, glow orange while the fire is on them and go dark once it has passed
+      // 3D trees on the forest and maquis cells (zoomed in)
+      map.addLayer(new TreeLayer(grid, () => ({ result: propsRef.current.result, step: propsRef.current.clockRef.current / 10 })))
       map.addSource('fg-buildings', { type: 'vector', url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${KEY}` })
       map.addLayer({
         id: 'fg-buildings',
@@ -213,12 +226,12 @@ export function Map3D(props: Map3DProps) {
     const loop = (now: number) => {
       const { rec, clockRef } = propsRef.current
       const step = clockRef.current / 10
-      if (step !== lastStep && now - lastPaint > 33) {
+      if (step !== lastStep && now - lastPaint > 66) {
         lastStep = step
         lastPaint = now
         paint(step)
       }
-      if (now - lastMark > 400) {
+      if (now - lastMark > 900) {
         lastMark = now
         markBuildings(step)
       }
