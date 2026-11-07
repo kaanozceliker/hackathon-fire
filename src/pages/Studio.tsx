@@ -7,6 +7,7 @@ import { MapStage, WindArrow } from '../components/MapStage'
 import { Timeline } from '../components/Timeline'
 import { Legend, Panel, Segmented, SliderField, Stat, fmtHa } from '../components/ui'
 import { icons } from '../components/mapIcons'
+import { SurroundingsPanel, TreeCoverOverlay, surroundings } from '../components/IgnitionSurroundings'
 import { ARRIVAL_LEGEND, type FireMode } from '../components/FireCanvasLayer'
 import { REGIONS, regionById, defaultConfig } from '../data/regions'
 import { getGrid } from '../sim/gridCache'
@@ -50,6 +51,8 @@ export function Studio() {
   const [weatherBusy, setWeatherBusy] = useState(false)
   const [showWind, setShowWind] = useState(true)
   const [showSmoke, setShowSmoke] = useState(true)
+  const [showTrees, setShowTrees] = useState(false)
+  const around = useMemo(() => surroundings(grid, draft.ignition), [grid, draft.ignition])
   const smoke = useMemo(() => (matches ? computeSmoke(res) : null), [res, matches])
   const smokeExp = useMemo(() => (smoke ? exposures(smoke) : null), [smoke])
   useEffect(() => {
@@ -136,6 +139,8 @@ export function Studio() {
           <div className="mt-1 text-[13px]">{draft.ignition[0].toFixed(4)}°K, {draft.ignition[1].toFixed(4)}°D</div>
           <div className="text-[12px] text-muted">Taşımak için haritada kesikli alanın içinde herhangi bir yere tıklayın.</div>
         </div>
+
+        <SurroundingsPanel s={around} cellM={grid.cellM} showTrees={showTrees} setShowTrees={setShowTrees} />
 
         <div className="space-y-2.5">
           <div>
@@ -240,6 +245,7 @@ export function Studio() {
               <Tooltip direction="right" permanent offset={[8, 0]} className="fg-label">{st.name}</Tooltip>
             </Marker>
           ))}
+          {showTrees && <TreeCoverOverlay grid={grid} s={around} at={draft.ignition} />}
           <Marker position={draft.ignition} icon={icons.ignition}>
             <Tooltip direction="top" offset={[0, -12]}>Tutuşma noktası</Tooltip>
           </Marker>
