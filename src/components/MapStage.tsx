@@ -27,6 +27,9 @@ function FitTo({ bounds, center, zoom, fitKey }: { bounds?: L.LatLngBoundsExpres
   const map = useMap()
   useEffect(() => {
     map.invalidateSize()
+    // A hidden or zero-size container makes Leaflet compute NaN coordinates and throw; skip until it has a size.
+    const size = map.getSize()
+    if (size.x === 0 || size.y === 0) return
     if (bounds) map.fitBounds(bounds, { padding: [24, 24], animate: true })
     else if (center) map.flyTo(center, zoom ?? 7, { duration: 0.8 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,7 +100,7 @@ export function MapStage(p: MapStageProps) {
   return (
     <div className={`relative h-full w-full ${p.className ?? ''}`}>
       <MapContainer center={p.center ?? [38.5, 32]} zoom={p.zoom ?? 6} minZoom={p.minZoom ?? 5} zoomControl={!p.compact} className="h-full w-full" preferCanvas>
-        <TileLayer key={base} url={BASEMAPS[base].url} attribution={BASEMAPS[base].attr} maxZoom={17} />
+        <TileLayer key={base} url={BASEMAPS[base].url} attribution={`${BASEMAPS[base].attr} · Arazi örtüsü &copy; ESA WorldCover (CC BY 4.0)`} maxZoom={17} />
         <FitTo bounds={bounds} center={p.center} zoom={p.zoom} fitKey={p.fitKey} />
         <Clicks onClick={p.onMapClick} pick={!!p.pick} />
         {grid && (

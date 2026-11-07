@@ -34,9 +34,17 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export function fuelOf(grid: Grid, i: number, fuelLoad: number): number {
   const k = grid.kind[i]
   if (k === 0) return 0
-  if (k === 1) return 0.1
+  // Built-up land: gardens and the odd structure can catch at the wildland edge, but streets and buildings do not
+  // carry a forest-type fire front.
+  if (k === 1) return 0.05
   return clamp(grid.veg[i] * fuelLoad * 1.15, 0.05, 1)
 }
+
+/** How strongly a burning cell pushes fire into its neighbours. Burning built-up cells barely propagate. */
+const SOURCE_STRENGTH = [0, 0.2, 1, 1, 1]
+
+/** Steps a cell keeps burning: forest fuel smoulders for up to ~2 h, built-up cells burn out quickly. */
+const burnSteps = (fuel: number, kind: number) => (kind === 1 ? 2 : Math.round(3 + 9 * Math.max(fuel, 0.3)))
 
 export function seedFor(config: SimConfig): number {
   // Seed depends only on area + ignition so changing weather keeps the same "random" luck → clean what-if comparisons.
@@ -109,7 +117,7 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
       const i = y * cols + x
       if (grid.kind[i] === 0 || ig[i] !== -1) continue
       ig[i] = 0
-      burnout[i] = Math.round(3 + 9 * Math.max(fuel[i], 0.3))
+      burnout[i] = burnSteps(fuel[i], grid.kind[i])
       burning.push(i)
     }
 
@@ -120,6 +128,7 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
       if (burnout[c] > s + 1) stillBurning.push(c)
       const cx = c % cols
       const cy = (c / cols) | 0
+      const src = SOURCE_STRENGTH[grid.kind[c]]
       for (let k = 0; k < 8; k++) {
         const x = cx + NEIGHBOURS[k][0]
         const y = cy + NEIGHBOURS[k][1]
@@ -130,15 +139,15 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         if (f <= 0) continue
         const g = ((grid.elev[j] - grid.elev[c]) / (cellM * dist[k])) * slopeMult
         const slopeF = Math.exp(clamp(g * 3.2, -1.2, 1.4))
-        const p = Math.min(0.97, (common * windF[k] * slopeF * f) / (dist[k] === 1 ? 1 : 1.35))
+        const p = Math.min(0.97, (common * windF[k] * slopeF * f * src) / (dist[k] === 1 ? 1 : 1.35))
         if (hash3(seed, c * 8 + k, s) < p) {
           ig[j] = s + 1
-          burnout[j] = s + 1 + Math.round(3 + 9 * Math.max(f, 0.3))
+          burnout[j] = s + 1 + burnSteps(f, grid.kind[j])
           next.push(j)
         }
       }
-      // ember spotting
-      if (spotRate > 0 && hash3(seed + 1, c, s) < spotRate) {
+      // ember spotting (vegetation fires only)
+      if (spotRate > 0 && src === 1 && hash3(seed + 1, c, s) < spotRate) {
         const d = 3 + Math.floor(hash3(seed + 2, c, s) * (ws / 5))
         const ang = (hash3(seed + 3, c, s) - 0.5) * 0.8
         const ca = Math.cos(ang)
@@ -149,9 +158,10 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         const y = Math.round(cy + vy * d)
         if (x >= 0 && y >= 0 && x < cols && y < rows) {
           const j = y * cols + x
-          if (ig[j] === -1 && fuel[j] > 0 && hash3(seed + 4, c, s) < 0.35 + 0.5 * fuel[j]) {
+          const accept = grid.kind[j] === 1 ? 0.05 : 0.35 + 0.5 * fuel[j]
+          if (ig[j] === -1 && fuel[j] > 0 && hash3(seed + 4, c, s) < accept) {
             ig[j] = s + 1
-            burnout[j] = s + 1 + Math.round(3 + 9 * Math.max(fuel[j], 0.3))
+            burnout[j] = s + 1 + burnSteps(fuel[j], grid.kind[j])
             next.push(j)
           }
         }

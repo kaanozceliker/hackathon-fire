@@ -108,10 +108,7 @@ export function Studio() {
             <div className="mb-1 text-[12px] text-muted">Başlangıç yangın şiddeti</div>
             <Segmented<Intensity> label="Başlangıç yangın şiddeti" value={draft.intensity} onChange={(v) => patchDraft({ intensity: v })} options={[{ value: 'low', label: 'Düşük' }, { value: 'medium', label: 'Orta' }, { value: 'high', label: 'Yüksek' }]} />
           </div>
-          <div>
-            <div className="mb-1 text-[12px] text-muted">Simülasyon süresi</div>
-            <Segmented<number> label="Simülasyon süresi" value={draft.durationH} onChange={(v) => patchDraft({ durationH: v as 1 | 3 | 6 | 12 | 24 })} options={[1, 3, 6, 12, 24].map((h) => ({ value: h, label: `${h} sa` }))} />
-          </div>
+          <SliderField label="Simülasyon süresi" value={draft.durationH} min={1} max={72} unit="sa" onChange={(v) => patchDraft({ durationH: v })} hint="1 ile 72 saat arası, 10 dakikalık adımlarla" />
         </div>
 
         <Panel title="Hava durumu" action={<span className="text-[11px] text-muted">Örnek girdiler</span>}>

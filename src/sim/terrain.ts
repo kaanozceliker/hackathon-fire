@@ -1,6 +1,7 @@
 import { fbm } from './rng'
 import type { Grid, Settlement } from './types'
 import { haversineM } from './geo'
+import { LANDCOVER } from '../data/landcover.generated'
 
 export const GRID_COLS = 130
 export const GRID_ROWS = 100
@@ -24,6 +25,9 @@ export function buildGrid(areaId: string, center: [number, number], seed: number
   const veg = new Float32Array(n)
   const kind = new Uint8Array(n)
 
+  // Real land cover (ESA WorldCover, baked by scripts/bake-landcover.ts) when available; synthetic cover otherwise.
+  const baked = decodeLandcover(areaId, n)
+
   // Marmaris bay (only for the demo area) – an ellipse of open water north of the southern coast.
   const bay = areaId === 'mugla' ? { lat: 36.835, lon: 28.285, rx: 2300, ry: 1500 } : null
 
@@ -40,6 +44,18 @@ export function buildGrid(areaId: string, center: [number, number], seed: number
       v += 0.18 * (1 - Math.abs(eNorm - 0.55) * 2)
       if (fbm(x * 0.05, y * 0.05, seed + 77, 2) > 0.7) v = 0.1 // valley fields
       veg[i] = Math.min(1, Math.max(0.05, v))
+
+      if (baked) {
+        kind[i] = baked[i * 2]
+        if (kind[i] === 0) {
+          veg[i] = 0
+          elev[i] = 0
+        } else {
+          // keep a little synthetic texture so neighbouring cells of one class are not identical
+          veg[i] = Math.min(1, Math.max(0.03, (baked[i * 2 + 1] / 255) * (0.85 + 0.3 * fbm(x * 0.2, y * 0.2, seed + 91, 2))))
+        }
+        continue
+      }
 
       const lat = lat0 - y * dLat
       const lon = lon0 + x * dLon
@@ -71,6 +87,16 @@ export function buildGrid(areaId: string, center: [number, number], seed: number
     }
   }
   return { areaId, cols, rows, cellM: CELL_M, lat0, lon0, dLat, dLon, elev, veg, kind }
+}
+
+function decodeLandcover(areaId: string, n: number): Uint8Array | null {
+  const b64 = LANDCOVER[areaId]
+  if (!b64) return null
+  const bin = atob(b64)
+  if (bin.length !== n * 2) return null
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
 }
 
 export function cellOf(grid: Grid, lat: number, lon: number): number {

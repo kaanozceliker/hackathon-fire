@@ -94,6 +94,11 @@ export class FireCanvasLayer extends L.Layer {
     }
   }
 
+  /**
+   * Cells are written one pixel per cell into a small offscreen canvas, then scaled up with smoothing and a light blur,
+   * so the 110 m grid reads as a soft field instead of hard squares. Anything that bleeds over open water is erased
+   * with a water mask, and the perimeter is traced as a smoothed contour (marching squares) instead of cell edges.
+   */
   private draw() {
     const { grid, result, resultB, step, mode, perimeter, opacity = 1 } = this.props
     const map = this.mapRef
@@ -103,96 +108,200 @@ export class FireCanvasLayer extends L.Layer {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
     if (!grid || mode === 'none') return
 
-    const nw = map.latLngToContainerPoint([grid.lat0, grid.lon0])
-    const se = map.latLngToContainerPoint([grid.lat0 - grid.rows * grid.dLat, grid.lon0 + grid.cols * grid.dLon])
-    const cw = (se.x - nw.x) / grid.cols
-    const ch = (se.y - nw.y) / grid.rows
-    const xs = (c: number) => Math.round(nw.x + c * cw)
-    const ys = (r: number) => Math.round(nw.y + r * ch)
-    const size = map.getSize()
     const { cols, rows } = grid
-    ctx.globalAlpha = opacity
+    const nw = map.latLngToContainerPoint([grid.lat0, grid.lon0])
+    const se = map.latLngToContainerPoint([grid.lat0 - rows * grid.dLat, grid.lon0 + cols * grid.dLon])
+    const cw = (se.x - nw.x) / cols
+    const ch = (se.y - nw.y) / rows
+    const blur = Math.min(10, Math.max(0, Math.min(cw, ch) * 0.35))
 
-    const c0 = Math.max(0, Math.floor(-nw.x / cw))
-    const c1 = Math.min(cols, Math.ceil((size.x - nw.x) / cw))
-    const r0 = Math.max(0, Math.floor(-nw.y / ch))
-    const r1 = Math.min(rows, Math.ceil((size.y - nw.y) / ch))
-
-    const rect = (c: number, r: number, color: string) => {
-      ctx.fillStyle = color
-      ctx.fillRect(xs(c), ys(r), xs(c + 1) - xs(c), ys(r + 1) - ys(r))
+    // --- 1. colour field, one pixel per cell ---
+    const field = this.fieldCanvas(cols, rows)
+    const fctx = field.getContext('2d')!
+    const img = fctx.createImageData(cols, rows)
+    const px = img.data
+    const put = (i: number, c: RGBA) => {
+      px[i * 4] = c[0]
+      px[i * 4 + 1] = c[1]
+      px[i * 4 + 2] = c[2]
+      px[i * 4 + 3] = c[3]
     }
-
+    const n = cols * rows
     if (mode === 'fuel') {
-      for (let r = r0; r < r1; r++)
-        for (let c = c0; c < c1; c++) {
-          const i = r * cols + c
-          const k = grid.kind[i]
-          if (k === 0) rect(c, r, 'rgba(40,90,140,0.30)')
-          else if (k === 1) rect(c, r, 'rgba(160,170,175,0.28)')
-          else if (k === 2) rect(c, r, 'rgba(190,180,90,0.16)')
-          else if (k === 3) rect(c, r, `rgba(86,170,95,${0.16 + 0.3 * grid.veg[i]})`)
-          else rect(c, r, `rgba(30,130,70,${0.25 + 0.4 * grid.veg[i]})`)
-        }
+      for (let i = 0; i < n; i++) {
+        const k = grid.kind[i]
+        if (k === 0) put(i, [40, 90, 140, 77])
+        else if (k === 1) put(i, [160, 170, 175, 72])
+        else if (k === 2) put(i, [190, 180, 90, 41])
+        else if (k === 3) put(i, [86, 170, 95, Math.round(255 * (0.16 + 0.3 * grid.veg[i]))])
+        else put(i, [30, 130, 70, Math.round(255 * (0.25 + 0.4 * grid.veg[i]))])
+      }
     } else if (mode === 'fire' && result) {
-      for (let r = r0; r < r1; r++)
-        for (let c = c0; c < c1; c++) {
-          const i = r * cols + c
-          const t = result.ignitionStep[i]
-          if (t < 0 || t > step) continue
-          const end = result.burnoutStep[i]
-          if (step >= end) rect(c, r, 'rgba(70,24,22,0.72)')
-          else {
-            const age = (step - t) / Math.max(1, end - t)
-            rect(c, r, FIRE_RAMP[Math.min(FIRE_RAMP.length - 1, Math.floor(age * FIRE_RAMP.length))])
-          }
+      for (let i = 0; i < n; i++) {
+        const t = result.ignitionStep[i]
+        if (t < 0 || t > step) continue
+        const end = result.burnoutStep[i]
+        if (step >= end) put(i, grid.kind[i] === 1 ? BURNED_URBAN : BURNED)
+        else {
+          const age = (step - t) / Math.max(1, end - t)
+          put(i, FIRE_RAMP_RGBA[Math.min(FIRE_RAMP_RGBA.length - 1, Math.floor(age * FIRE_RAMP_RGBA.length))])
         }
+      }
     } else if (mode === 'arrival' && result) {
-      for (let r = r0; r < r1; r++)
-        for (let c = c0; c < c1; c++) {
-          const t = result.ignitionStep[r * cols + c]
-          if (t < 0) continue
-          const m = t * result.stepMin
-          const band = ARRIVAL_BANDS.find((b) => m <= b.max)!
-          ctx.globalAlpha = 0.55 * opacity
-          rect(c, r, band.color)
-        }
-      ctx.globalAlpha = opacity
+      for (let i = 0; i < n; i++) {
+        const t = result.ignitionStep[i]
+        if (t < 0) continue
+        const m = t * result.stepMin
+        put(i, ARRIVAL_RGBA[ARRIVAL_BANDS.findIndex((b) => m <= b.max)])
+      }
     } else if (mode === 'diff' && result && resultB) {
-      for (let r = r0; r < r1; r++)
-        for (let c = c0; c < c1; c++) {
-          const i = r * cols + c
-          const a = result.ignitionStep[i] >= 0 && result.ignitionStep[i] <= step
-          const b = resultB.ignitionStep[i] >= 0 && resultB.ignitionStep[i] <= step
-          if (a && b) rect(c, r, 'rgba(235,235,225,0.55)')
-          else if (a) rect(c, r, 'rgba(57,135,229,0.8)')
-          else if (b) rect(c, r, 'rgba(217,89,38,0.85)')
-        }
+      for (let i = 0; i < n; i++) {
+        const a = result.ignitionStep[i] >= 0 && result.ignitionStep[i] <= step
+        const b = resultB.ignitionStep[i] >= 0 && resultB.ignitionStep[i] <= step
+        if (a && b) put(i, [235, 235, 225, 140])
+        else if (a) put(i, [57, 135, 229, 204])
+        else if (b) put(i, [217, 89, 38, 217])
+      }
     }
+    fctx.putImageData(img, 0, 0)
 
-    // fire perimeter: edges between cells already ignited at this step and cells not (yet) ignited
+    ctx.globalAlpha = opacity
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    if (blur > 0.5) ctx.filter = `blur(${blur.toFixed(1)}px)`
+    ctx.drawImage(field, 0, 0, cols, rows, nw.x, nw.y, cols * cw, rows * ch)
+    ctx.filter = 'none'
+
+    // --- 2. perimeter contour ---
     if (perimeter && (mode === 'fire' || mode === 'diff') && result) {
       const src = mode === 'diff' ? [result, resultB] : [result]
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
       src.forEach((res, idx) => {
         if (!res) return
-        const ig = res.ignitionStep
         ctx.beginPath()
-        for (let r = r0; r < r1; r++)
-          for (let c = c0; c < c1; c++) {
-            const i = r * cols + c
-            const t = ig[i]
-            if (t < 0 || t > step) continue
-            const open = (j: number) => grid.kind[j] !== 0 && (ig[j] < 0 || ig[j] > step)
-            if (c > 0 && open(i - 1)) { ctx.moveTo(xs(c), ys(r)); ctx.lineTo(xs(c), ys(r + 1)) }
-            if (c < cols - 1 && open(i + 1)) { ctx.moveTo(xs(c + 1), ys(r)); ctx.lineTo(xs(c + 1), ys(r + 1)) }
-            if (r > 0 && open(i - cols)) { ctx.moveTo(xs(c), ys(r)); ctx.lineTo(xs(c + 1), ys(r)) }
-            if (r < rows - 1 && open(i + cols)) { ctx.moveTo(xs(c), ys(r + 1)); ctx.lineTo(xs(c + 1), ys(r + 1)) }
-          }
+        traceContour(ctx, grid, res.ignitionStep, step, nw.x, nw.y, cw, ch)
         ctx.lineWidth = 1.6
         ctx.strokeStyle = mode === 'diff' ? (idx === 0 ? '#7fb6f5' : '#f4a27a') : '#ffe9b0'
         ctx.stroke()
       })
     }
+
+    // --- 3. erase whatever bled over open water (fuel mode draws water on purpose) ---
+    if (mode !== 'fuel') {
+      ctx.globalAlpha = 1
+      ctx.globalCompositeOperation = 'destination-out'
+      if (blur > 0.5) ctx.filter = `blur(${(blur * 0.5).toFixed(1)}px)`
+      ctx.drawImage(this.waterMask(grid), 0, 0, cols, rows, nw.x, nw.y, cols * cw, rows * ch)
+      ctx.filter = 'none'
+      ctx.globalCompositeOperation = 'source-over'
+    }
     ctx.globalAlpha = 1
   }
+
+  private field?: HTMLCanvasElement
+  private fieldCanvas(cols: number, rows: number) {
+    if (!this.field) this.field = document.createElement('canvas')
+    if (this.field.width !== cols || this.field.height !== rows) {
+      this.field.width = cols
+      this.field.height = rows
+    }
+    return this.field
+  }
+
+  private mask?: { grid: Grid; canvas: HTMLCanvasElement }
+  private waterMask(grid: Grid) {
+    if (this.mask?.grid === grid) return this.mask.canvas
+    const c = document.createElement('canvas')
+    c.width = grid.cols
+    c.height = grid.rows
+    const x = c.getContext('2d')!
+    const img = x.createImageData(grid.cols, grid.rows)
+    for (let i = 0; i < grid.kind.length; i++) if (grid.kind[i] === 0) img.data[i * 4 + 3] = 255
+    x.putImageData(img, 0, 0)
+    this.mask = { grid, canvas: c }
+    return c
+  }
+}
+
+type RGBA = [number, number, number, number]
+const hexRGBA = (hex: string, a: number): RGBA => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), Math.round(a * 255)]
+const FIRE_RAMP_RGBA = FIRE_RAMP.map((h) => hexRGBA(h, 0.92))
+const ARRIVAL_RGBA = ARRIVAL_BANDS.map((b) => hexRGBA(b.color, 0.55))
+const BURNED: RGBA = [70, 24, 22, 184]
+/** Burned-out built-up land: grey ash rather than charred forest. */
+const BURNED_URBAN: RGBA = [96, 84, 80, 150]
+
+/**
+ * Marching squares over cell centres on a 3×3-smoothed "burned" field, threshold 0.5.
+ * Water next to the fire counts as inside, so the contour runs out over the water and is erased by the water mask
+ * instead of tracing the coastline.
+ */
+function traceContour(ctx: CanvasRenderingContext2D, grid: Grid, ig: Int16Array, step: number, ox: number, oy: number, cw: number, ch: number) {
+  const { cols, rows, kind } = grid
+  const on = new Uint8Array(cols * rows)
+  for (let i = 0; i < on.length; i++) on[i] = ig[i] >= 0 && ig[i] <= step ? 1 : 0
+  const raw = new Float32Array(cols * rows)
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c
+      if (kind[i] === 0) {
+        let near = 0
+        for (let dy = -1; dy <= 1 && !near; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const y = r + dy
+            const x = c + dx
+            if (x >= 0 && y >= 0 && x < cols && y < rows && on[y * cols + x]) { near = 1; break }
+          }
+        raw[i] = near
+      } else raw[i] = on[i]
+    }
+  const v = new Float32Array(cols * rows)
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      let s = 0
+      let w = 0
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const y = r + dy
+          const x = c + dx
+          if (x < 0 || y < 0 || x >= cols || y >= rows) continue
+          const k = dx === 0 && dy === 0 ? 4 : dx === 0 || dy === 0 ? 2 : 1
+          s += raw[y * cols + x] * k
+          w += k
+        }
+      v[r * cols + c] = s / w
+    }
+
+  const T = 0.5
+  const X = (c: number) => ox + (c + 0.5) * cw
+  const Y = (r: number) => oy + (r + 0.5) * ch
+  const lerp = (a: number, b: number) => (a === b ? 0.5 : (T - a) / (b - a))
+  for (let r = 0; r < rows - 1; r++)
+    for (let c = 0; c < cols - 1; c++) {
+      const a = v[r * cols + c] // top-left
+      const b = v[r * cols + c + 1] // top-right
+      const d = v[(r + 1) * cols + c] // bottom-left
+      const e = v[(r + 1) * cols + c + 1] // bottom-right
+      const code = (a >= T ? 8 : 0) | (b >= T ? 4 : 0) | (e >= T ? 2 : 0) | (d >= T ? 1 : 0)
+      if (code === 0 || code === 15) continue
+      const top: [number, number] = [X(c + lerp(a, b)), Y(r)]
+      const right: [number, number] = [X(c + 1), Y(r + lerp(b, e))]
+      const bottom: [number, number] = [X(c + lerp(d, e)), Y(r + 1)]
+      const left: [number, number] = [X(c), Y(r + lerp(a, d))]
+      const seg = (p: [number, number], q: [number, number]) => {
+        ctx.moveTo(p[0], p[1])
+        ctx.lineTo(q[0], q[1])
+      }
+      switch (code) {
+        case 1: case 14: seg(left, bottom); break
+        case 2: case 13: seg(bottom, right); break
+        case 3: case 12: seg(left, right); break
+        case 4: case 11: seg(top, right); break
+        case 6: case 9: seg(top, bottom); break
+        case 7: case 8: seg(left, top); break
+        case 5: seg(left, top); seg(bottom, right); break
+        case 10: seg(top, right); seg(left, bottom); break
+      }
+    }
 }

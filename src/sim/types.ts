@@ -7,7 +7,8 @@ export interface SimConfig {
   areaId: string
   ignition: LatLon
   intensity: Intensity
-  durationH: 1 | 3 | 6 | 12 | 24
+  /** Whole hours, 1–72. */
+  durationH: number
   temperatureC: number
   humidityPct: number
   windSpeedKmh: number

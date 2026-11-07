@@ -7,7 +7,9 @@ export function Timeline() {
   const steps = active.result.steps
   const stat = active.result.series[step]
   const hours = active.result.config.durationH
-  const ticks = Array.from({ length: hours <= 6 ? hours + 1 : hours <= 12 ? hours / 2 + 1 : hours / 4 + 1 }, (_, i) => (hours <= 6 ? i : hours <= 12 ? i * 2 : i * 4))
+  // At most ~12 hour labels whatever the duration (1–72 h).
+  const every = [1, 2, 3, 4, 6, 12].find((e) => hours / e <= 12) ?? 12
+  const ticks = Array.from({ length: Math.floor(hours / every) + 1 }, (_, i) => i * every)
   const p = (step / steps) * 100
   return (
     <div className="border border-line2 bg-bg/95 px-3 py-2 backdrop-blur-sm" role="group" aria-label="Simülasyon zaman çizelgesi">
@@ -22,8 +24,10 @@ export function Timeline() {
         </div>
         <div className="min-w-[210px] flex-1">
           <input type="range" min={0} max={steps} value={step} onChange={(e) => { setPlaying(false); setStep(Number(e.target.value)) }} style={{ ['--p' as string]: `${p}%` }} aria-label="Simülasyon zamanı" />
-          <div className="relative -mt-0.5 flex justify-between text-[11px] text-muted">
-            {ticks.map((t) => <span key={t}>{t}sa</span>)}
+          <div className="relative -mt-0.5 h-4 text-[11px] text-muted">
+            {ticks.map((t) => (
+              <span key={t} className="absolute top-0" style={{ left: `${(t / hours) * 100}%`, transform: t === 0 ? 'none' : t === hours ? 'translateX(-100%)' : 'translateX(-50%)' }}>{t}sa</span>
+            ))}
           </div>
         </div>
         <div className="flex items-baseline gap-3 text-[12px]">
