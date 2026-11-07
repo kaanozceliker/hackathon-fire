@@ -1,6 +1,6 @@
 # Bağımlılıklar
 node_modules/
-
+.claude
 # Build çıktıları
 dist/
 dist-ssr/

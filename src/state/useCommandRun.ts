@@ -32,6 +32,8 @@ export function useCommandRun() {
   const [thinking, setThinking] = useState(false)
   const [baseline, setBaseline] = useState<SimResult | null>(null)
   const deciding = useRef(false)
+  /** Continuous playback time in simulation minutes, for layers that animate every frame. */
+  const clockRef = useRef(0)
 
   const pump = useCallback(() => {
     const run = runRef.current
@@ -60,6 +62,8 @@ export function useCommandRun() {
       setThinking(false)
       setBaseline(null)
       setHeadMin(0)
+    clockRef.current = 0
+      clockRef.current = 0
       setStatus('running')
       setPlaying(true)
       pump()
@@ -93,6 +97,7 @@ export function useCommandRun() {
     setBaseline(null)
     setFrontier(0)
     setHeadMin(0)
+    clockRef.current = 0
     setStatus('idle')
   }, [])
 
@@ -130,23 +135,42 @@ export function useCommandRun() {
       })
   }, [head, pending, status, pump])
 
-  // playback: one 15-minute tick per second at 1×; it stops at the computed frontier (a decision point or the end)
+  // playback: a continuous clock (15 simulation minutes per second at 1×) that map layers read every frame;
+  // panels follow it in 15-minute ticks. It stops at the computed frontier (a decision point or the end).
+  const frontierRef = useRef(frontier)
+  frontierRef.current = frontier
+  const statusRef = useRef(status)
+  statusRef.current = status
   useEffect(() => {
     if (!playing) return
-    const id = window.setInterval(() => {
-      setHeadMin((m) => {
-        const max = frontier * STEP_MIN
-        if (m >= max) {
-          if (status === 'done' || status === 'stopped') setPlaying(false)
-          return max
-        }
-        return Math.min(max, (Math.floor(m / TICK_MIN) + 1) * TICK_MIN)
-      })
-    }, 1000 / speed)
-    return () => window.clearInterval(id)
-  }, [playing, speed, frontier, status])
+    let raf = 0
+    let last = performance.now()
+    const loop = (now: number) => {
+      const dt = Math.min(0.25, (now - last) / 1000)
+      last = now
+      const max = frontierRef.current * STEP_MIN
+      const m = Math.min(max, clockRef.current + dt * TICK_MIN * speed)
+      clockRef.current = m
+      const shown = m >= max ? max : Math.floor(m / TICK_MIN) * TICK_MIN
+      setHeadMin((prev) => (prev === shown ? prev : shown))
+      if (m >= max && (statusRef.current === 'done' || statusRef.current === 'stopped')) {
+        setPlaying(false)
+        return
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [playing, speed])
 
-  const setHead = useCallback((s: number) => setHeadMin(Math.max(0, Math.min(frontier, Math.round(s))) * STEP_MIN), [frontier])
+  const setHead = useCallback(
+    (s: number) => {
+      const m = Math.max(0, Math.min(frontier, Math.round(s))) * STEP_MIN
+      clockRef.current = m
+      setHeadMin(m)
+    },
+    [frontier],
+  )
 
-  return { status, live, baseline, frontier, head, headMin, setHead, playing, setPlaying, speed, setSpeed, pending, thinking, start, stop, reset }
+  return { status, live, baseline, frontier, head, headMin, clockRef, setHead, playing, setPlaying, speed, setSpeed, pending, thinking, start, stop, reset }
 }

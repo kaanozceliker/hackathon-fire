@@ -139,13 +139,17 @@ export class FireCanvasLayer extends L.Layer {
     } else if (mode === 'fire' && result) {
       for (let i = 0; i < n; i++) {
         const t = result.ignitionStep[i]
-        if (t < 0 || t > step) continue
+        // with a fractional step a cell fades in over the 10 minutes in which it catches
+        const f = t < 0 ? 0 : Math.min(1, step - (t - 1))
+        if (f <= 0) continue
         const end = result.burnoutStep[i]
-        if (step >= end) put(i, grid.kind[i] === 1 ? BURNED_URBAN : BURNED)
+        let c: RGBA
+        if (step >= end) c = grid.kind[i] === 1 ? BURNED_URBAN : BURNED
         else {
-          const age = (step - t) / Math.max(1, end - t)
-          put(i, FIRE_RAMP_RGBA[Math.min(FIRE_RAMP_RGBA.length - 1, Math.floor(age * FIRE_RAMP_RGBA.length))])
+          const age = Math.max(0, step - t) / Math.max(1, end - t)
+          c = FIRE_RAMP_RGBA[Math.min(FIRE_RAMP_RGBA.length - 1, Math.floor(age * FIRE_RAMP_RGBA.length))]
         }
+        put(i, f < 1 ? [c[0], c[1], c[2], Math.round(c[3] * f)] : c)
       }
     } else if (mode === 'arrival' && result) {
       for (let i = 0; i < n; i++) {

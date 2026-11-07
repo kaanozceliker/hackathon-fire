@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import L from 'leaflet'
-import { Marker, Tooltip } from 'react-leaflet'
+import { Marker, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Bot, ChevronDown, ChevronRight, Cpu, Helicopter, Loader2, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Truck } from 'lucide-react'
 import { MapStage } from '../components/MapStage'
@@ -177,6 +177,7 @@ export function Command() {
             result={live}
             resultB={compare && run.baseline ? run.baseline : null}
             step={head}
+            clockRef={live ? run.clockRef : undefined}
             mode={compare && run.baseline ? 'diff' : live ? 'fire' : 'fuel'}
             fitGrid
             fitKey={config.areaId}
@@ -203,17 +204,7 @@ export function Command() {
               ) : undefined
             }
           >
-            {rec &&
-              !compare &&
-              rec.tracks.map((tr) => {
-                const p = at(tr.points, head)
-                if (!p || p.status === 'unavailable') return null
-                return (
-                  <Marker key={tr.id} position={[p.lat, p.lon]} icon={unitIcon(tr.kind, p.status)} zIndexOffset={500}>
-                    <Tooltip direction="top" offset={[0, -12]}>{tr.name} · {STATUS[p.status].label}</Tooltip>
-                  </Marker>
-                )
-              })}
+            {rec && !compare && <UnitsLayer rec={rec} clockRef={run.clockRef} />}
             {region.settlements.map((st) => {
               const ev = rec?.evacuations.find((e) => e.settlementId === st.id && e.startStep <= head)
               const label = !ev ? '' : head >= ev.doneStep ? ' · tahliye edildi' : ` · tahliye %${Math.round(((head - ev.startStep) / Math.max(1, ev.doneStep - ev.startStep)) * 100)}`
@@ -291,6 +282,68 @@ export function Command() {
       </aside>
     </div>
   )
+}
+
+/**
+ * Resource icons, moved every frame from the playback clock: each glides between the positions recorded at the
+ * surrounding 10-minute steps instead of jumping. Markers are managed directly in Leaflet, not re-rendered by React.
+ */
+function UnitsLayer({ rec, clockRef }: { rec: ResponseRecord; clockRef: { current: number } }) {
+  const map = useMap()
+  const recRef = useRef(rec)
+  recRef.current = rec
+  useEffect(() => {
+    const markers = new Map<string, { m: L.Marker; status: ResourceStatus | null }>()
+    let raf = 0
+    const loop = () => {
+      const r = recRef.current
+      const s = clockRef.current / 10
+      const seen = new Set<string>()
+      for (const tr of r.tracks) {
+        const pts = tr.points
+        let lo = 0
+        let hi = pts.length - 1
+        let i = -1
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1
+          if (pts[mid].step <= s) {
+            i = mid
+            lo = mid + 1
+          } else hi = mid - 1
+        }
+        if (i < 0 || pts[i].status === 'unavailable') continue
+        const p0 = pts[i]
+        const p1 = pts[i + 1]
+        const f = p1 && p1.step === p0.step + 1 ? Math.min(1, Math.max(0, s - p0.step)) : 0
+        const ll: [number, number] = p1 ? [p0.lat + (p1.lat - p0.lat) * f, p0.lon + (p1.lon - p0.lon) * f] : [p0.lat, p0.lon]
+        seen.add(tr.id)
+        let e = markers.get(tr.id)
+        if (!e) {
+          const m = L.marker(ll, { icon: unitIcon(tr.kind, p0.status), zIndexOffset: 500, keyboard: false }).addTo(map)
+          m.bindTooltip('', { direction: 'top', offset: [0, -12] })
+          e = { m, status: null }
+          markers.set(tr.id, e)
+        } else e.m.setLatLng(ll)
+        if (e.status !== p0.status) {
+          e.m.setIcon(unitIcon(tr.kind, p0.status))
+          e.m.setTooltipContent(`${tr.name} · ${STATUS[p0.status].label}`)
+          e.status = p0.status
+        }
+      }
+      for (const [id, e] of markers)
+        if (!seen.has(id)) {
+          e.m.remove()
+          markers.delete(id)
+        }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => {
+      cancelAnimationFrame(raf)
+      markers.forEach((e) => e.m.remove())
+    }
+  }, [map, clockRef])
+  return null
 }
 
 function DecisionCard({ d, open, onToggle }: { d: Decision; open: boolean; onToggle: () => void }) {

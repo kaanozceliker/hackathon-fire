@@ -51,7 +51,7 @@ function Clicks({ onClick, pick }: { onClick?: (lat: number, lon: number) => voi
   return null
 }
 
-function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; resultB: SimResult | null; step: number; mode: FireMode; perimeter: boolean; opacity?: number; onHover: (c: CellInfo | null) => void }) {
+function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; resultB: SimResult | null; step: number; mode: FireMode; perimeter: boolean; opacity?: number; clockRef?: { current: number }; onHover: (c: CellInfo | null) => void }) {
   const map = useMap()
   const layer = useRef<FireCanvasLayer | null>(null)
   useEffect(() => {
@@ -68,9 +68,32 @@ function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; r
     mousemove: (e) => onHover(layer.current?.cellAt(e.latlng) ?? null),
     mouseout: () => onHover(null),
   })
+  const stepNow = () => (props.clockRef ? props.clockRef.current / 10 : props.step)
+  const draw = (step: number) => layer.current?.update({ grid: props.grid, result: props.result, resultB: props.resultB, step, mode: props.mode, perimeter: props.perimeter, opacity: props.opacity })
   useEffect(() => {
-    layer.current?.update({ grid: props.grid, result: props.result, resultB: props.resultB, step: props.step, mode: props.mode, perimeter: props.perimeter, opacity: props.opacity })
+    draw(stepNow())
   })
+  // with a playback clock, redraw ~30 times a second while it moves so the fire grows smoothly
+  const drawRef = useRef(draw)
+  drawRef.current = draw
+  const { clockRef } = props
+  useEffect(() => {
+    if (!clockRef) return
+    let raf = 0
+    let last = -1
+    let lastDraw = 0
+    const loop = (now: number) => {
+      const s = clockRef.current / 10
+      if (s !== last && now - lastDraw > 33) {
+        last = s
+        lastDraw = now
+        drawRef.current(s)
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [clockRef])
   return null
 }
 
@@ -148,6 +171,8 @@ export interface MapStageProps {
   legend?: ReactNode
   controls?: ReactNode
   hud?: boolean
+  /** Continuous playback time in minutes; when given, the fire layer animates smoothly between steps. */
+  clockRef?: { current: number }
   /** Safety lines, water drops and evacuation routes of a response run at a step. */
   response?: { record: ResponseRecord; step: number } | null
   /** Animated smoke of this result at this step. */
@@ -180,6 +205,7 @@ export function MapStage(p: MapStageProps) {
             mode={p.mode ?? 'none'}
             perimeter={p.perimeter ?? true}
             opacity={p.opacity}
+            clockRef={p.clockRef}
             onHover={setHover}
           />
         )}
