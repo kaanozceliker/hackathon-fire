@@ -9,7 +9,7 @@ import { cellWeather } from '../sim/weather'
  * With prefers-reduced-motion a static arrow field is drawn instead.
  */
 
-const MAX_COUNT = 420
+const MAX_COUNT = 260
 /** Grid cells moved per second for 1 km/h of wind. */
 const SPEED = 0.16
 
@@ -151,7 +151,7 @@ export class WindParticleLayer extends L.Layer {
     }
     ctx.lineCap = 'round'
     ctx.lineWidth = 1.3
-    ;[0.12, 0.22, 0.32].forEach((alpha, gi) => {
+    ;[0.08, 0.14, 0.21].forEach((alpha, gi) => {
       ctx.strokeStyle = `rgba(214, 232, 240, ${alpha})`
       ctx.stroke(groups[gi])
     })

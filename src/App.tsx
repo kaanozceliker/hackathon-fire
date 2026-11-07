@@ -1,13 +1,15 @@
+import { lazy } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { Shell } from './components/Shell'
 import { Dashboard } from './pages/Dashboard'
-import { Studio } from './pages/Studio'
-import { Planner } from './pages/Planner'
-import { Analytics } from './pages/Analytics'
-import { Command } from './pages/Command'
-import { History } from './pages/History'
-import { Drill } from './pages/Drill'
-import { AssetShield } from './pages/AssetShield'
+
+const Studio = lazy(() => import('./pages/Studio').then((page) => ({ default: page.Studio })))
+const Planner = lazy(() => import('./pages/Planner').then((page) => ({ default: page.Planner })))
+const Analytics = lazy(() => import('./pages/Analytics').then((page) => ({ default: page.Analytics })))
+const Command = lazy(() => import('./pages/Command').then((page) => ({ default: page.Command })))
+const History = lazy(() => import('./pages/History').then((page) => ({ default: page.History })))
+const Drill = lazy(() => import('./pages/Drill').then((page) => ({ default: page.Drill })))
+const AssetShield = lazy(() => import('./pages/AssetShield').then((page) => ({ default: page.AssetShield })))
 
 export default function App() {
   return (

@@ -8,7 +8,7 @@ import type { Grid, ResponseRecord } from '../sim/types'
  * - evacuation routes in progress as moving dashes, finished ones faint.
  */
 
-export const LINE_COLORS = ['#f2d03b', '#ee7a2b', '#e5483d', '#c2357a']
+export const LINE_COLORS = ['#dfc47c', '#df9a6b', '#e67d6e', '#bd9ca5']
 export const lineColor = (level: number) => LINE_COLORS[Math.min(LINE_COLORS.length, level) - 1]
 const BREACH = '#ff5a4e'
 const WATER = '120,190,255'

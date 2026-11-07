@@ -29,7 +29,7 @@ export interface CellInfo {
   igniteMin: number | null
 }
 
-const FIRE_RAMP = ['#fff2a8', '#ffd24a', '#ffa530', '#f77a25', '#e5502a', '#c93426', '#a52a22']
+const FIRE_RAMP = ['#ffe9a3', '#f6c65f', '#eea24d', '#e67d3d', '#d85832', '#b8402c', '#94352b']
 const ARRIVAL_BANDS = [
   { max: 60, color: '#e5483d' },
   { max: 180, color: '#ee7a2b' },
@@ -140,8 +140,8 @@ export class FireCanvasLayer extends L.Layer {
         if (k === 0) put(i, [40, 90, 140, 77])
         else if (k === 1) put(i, [160, 170, 175, 72])
         else if (k === 2) put(i, [190, 180, 90, 41])
-        else if (k === 3) put(i, [86, 170, 95, Math.round(255 * (0.16 + 0.3 * grid.veg[i]))])
-        else put(i, [30, 130, 70, Math.round(255 * (0.25 + 0.4 * grid.veg[i]))])
+        else if (k === 3) put(i, [169, 156, 133, Math.round(255 * (0.12 + 0.24 * grid.veg[i]))])
+        else put(i, [122, 146, 155, Math.round(255 * (0.18 + 0.3 * grid.veg[i]))])
       }
     } else if (mode === 'fire' && result) {
       for (let i = 0; i < n; i++) {
@@ -201,10 +201,23 @@ export class FireCanvasLayer extends L.Layer {
         if (!res) return
         ctx.beginPath()
         traceContour(ctx, grid, res.ignitionStep, step, nw.x, nw.y, cw, ch)
-        ctx.lineWidth = 1.6
-        ctx.strokeStyle = mode === 'diff' ? (idx === 0 ? '#7fb6f5' : '#f4a27a') : '#ffe9b0'
+        ctx.lineWidth = 3.5
+        ctx.strokeStyle = 'rgba(16,24,28,.55)'
+        ctx.stroke()
+        ctx.lineWidth = 1.25
+        ctx.strokeStyle = mode === 'diff' ? (idx === 0 ? '#7fb6f5' : '#f4a27a') : '#ead1ad'
         ctx.stroke()
       })
+    }
+
+    // A fine amber edge identifies cells burning now, distinct from the cumulative burned footprint.
+    if (mode === 'fire' && result && !this.props.zoneColors && Math.min(cw, ch) > 1.8) {
+      const active = this.activeField(result, Math.floor(step))
+      ctx.beginPath()
+      traceContour(ctx, grid, active, 0, nw.x, nw.y, cw, ch)
+      ctx.lineWidth = 1.1
+      ctx.strokeStyle = 'rgba(255,205,113,.82)'
+      ctx.stroke()
     }
 
     // --- 2a. borders between post-fire strategy zones ---
@@ -250,6 +263,14 @@ export class FireCanvasLayer extends L.Layer {
   }
 
   private zoneCache?: { result: SimResult; zones: Int8Array }
+  private activeCache?: { result: SimResult; step: number; field: Int16Array }
+  private activeField(result: SimResult, step: number): Int16Array {
+    if (this.activeCache?.result === result && this.activeCache.step === step) return this.activeCache.field
+    const field = new Int16Array(result.ignitionStep.length).fill(-1)
+    for (let i = 0; i < field.length; i++) if (result.ignitionStep[i] >= 0 && result.ignitionStep[i] <= step && result.burnoutStep[i] > step) field[i] = 0
+    this.activeCache = { result, step, field }
+    return field
+  }
   /** Sector of every burned cell around the ignition point (-1 = not burned), cached per result. */
   private zonesOf(result: SimResult): Int8Array {
     if (this.zoneCache?.result === result) return this.zoneCache.zones
@@ -375,9 +396,9 @@ function zoneRgba(colors: (string | null)[], zone: number, hover: number | null)
 const hexRGBA = (hex: string, a: number): RGBA => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), Math.round(a * 255)]
 const FIRE_RAMP_RGBA = FIRE_RAMP.map((h) => hexRGBA(h, 0.92))
 const ARRIVAL_RGBA = ARRIVAL_BANDS.map((b) => hexRGBA(b.color, 0.55))
-const BURNED: RGBA = [58, 30, 28, 178]
+const BURNED: RGBA = [58, 48, 46, 188]
 /** Just burned out: still smouldering. */
-const BURNED_HOT: RGBA = [122, 34, 20, 205]
+const BURNED_HOT: RGBA = [119, 55, 34, 205]
 /** Burned-out built-up land: grey ash rather than charred forest. */
 const BURNED_URBAN: RGBA = [96, 84, 80, 150]
 

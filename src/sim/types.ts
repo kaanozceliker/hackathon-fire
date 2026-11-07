@@ -171,9 +171,17 @@ export interface ResponseRecord {
     id: string
     name: string
     kind: ResourceKind
+    /** Presentation metadata; does not change dispatch or travel calculations. */
+    base?: LatLon
+    availableFromStep?: number
     points: { step: number; lat: number; lon: number; status: ResourceStatus }[]
     /** Each trip: the road path driven (or flown) between two steps, at even speed. */
-    moves: { fromStep: number; toStep: number; path: LatLon[] }[]
+    moves: {
+      fromStep: number; toStep: number; path: LatLon[]
+      purpose?: 'dispatch' | 'return' | 'patrol' | 'water' | 'refill' | 'drop'
+      /** First arrival at the patrol area, before continuing along the perimeter. */
+      arrivalStep?: number
+    }[]
   }[]
   drops: { step: number; lat: number; lon: number }[]
   /** Aircraft filling up at a water source, from step to untilStep (fractional steps). */

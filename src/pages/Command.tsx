@@ -1,8 +1,8 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import { Circle, ImageOverlay, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Droplets, Eye, Helicopter, Home, Loader2, Milestone, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Trees, Truck } from 'lucide-react'
+import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Droplets, Eye, Helicopter, Home, Loader2, Milestone, Play, Plane, Save, Square, RotateCcw, Tractor, Trees, Truck } from 'lucide-react'
 import { MapStage, WindArrow } from '../components/MapStage'
 // the 3D view (MapTiler SDK, ~1.3 MB) loads only when chosen
 const Map3D = lazy(() => import('../components/Map3D').then((m) => ({ default: m.Map3D })))
@@ -12,7 +12,6 @@ import { lineColor } from '../components/ResponseLayer'
 import { regionById } from '../data/regions'
 import { getInfrastructure } from '../data/infrastructure'
 import { getGrid } from '../sim/gridCache'
-import { inventoryFor } from '../data/inventory'
 import { compass, fmtDuration } from '../sim/geo'
 import { activeMove, alongPath } from '../lib/tracks'
 import { weatherAt } from '../sim/weather'
@@ -24,10 +23,12 @@ import { ACTION_INFO, PHASE_LABEL, recoveryContext, ruleRecovery, zoneCentroids,
 import { cellCenter, cellOf, gridBounds } from '../sim/terrain'
 import { MEASURE_INFO, buildCandidates, measureSize, measuresToRun, preventionContext, rulePrevention, type Measure, type PreventionPlan } from '../sim/prevention'
 import { SECTORS } from '../sim/types'
+import { PlaybackBar } from '../components/PlaybackBar'
+import { ResourcesPanel } from '../components/ResourcesPanel'
 
 const T = (step: number) => `T+${fmtDuration(step * 10)}`
 /** Playback time, in minutes (moves in 15-minute ticks). */
-const Tm = (min: number) => `T+${fmtDuration(min)}`
+const Tm = (min: number) => `T+${fmtDuration(Math.max(0, min))}`
 
 const KIND: Record<ResourceKind, { label: string; color: string; Icon: typeof Truck }> = {
   crew: { label: 'Arazöz ekibi', color: '#e5483d', Icon: Truck },
@@ -71,20 +72,6 @@ function unitIcon(kind: ResourceKind, status: ResourceStatus): L.DivIcon {
     iconCache.set(key, ic)
   }
   return ic
-}
-
-function at<T extends { step: number }>(points: T[], step: number): T | null {
-  let lo = 0
-  let hi = points.length - 1
-  let best: T | null = null
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1
-    if (points[mid].step <= step) {
-      best = points[mid]
-      lo = mid + 1
-    } else hi = mid - 1
-  }
-  return best
 }
 
 export function Command() {
@@ -195,7 +182,7 @@ export function Command() {
   const w = live ? weatherAt(live.config, run.headMin) : null
 
   return (
-    <div className="flex min-h-full flex-col lg:h-full lg:flex-row">
+    <div className="fg-command flex min-h-full flex-col lg:h-full lg:flex-row">
       {/* setup */}
       <aside className="w-full shrink-0 space-y-3 overflow-auto border-b border-line bg-panel p-3 lg:w-[290px] lg:border-b-0 lg:border-r">
         <Panel title="Müdahale senaryosu">
@@ -207,12 +194,12 @@ export function Command() {
             <SliderField label="Müdahale başlangıcı" value={startMin} min={0} max={180} step={10} unit="dk" onChange={setStartMin} hint="Yangın başladıktan kaç dakika sonra ilk karar verilir ve ekipler yola çıkar" />
             <div>
               <div className="mb-1 text-[12px] text-muted">Olay komutanı</div>
-              <Segmented<CommanderMode> label="Olay komutanı" value={mode} onChange={setMode} options={[{ value: 'ai', label: 'ChatGPT (yapay zeka)' }, { value: 'rules', label: 'Kural tabanlı' }]} />
+              <Segmented<CommanderMode> label="Olay komutanı" value={mode} onChange={setMode} options={[{ value: 'ai', label: 'Yapay zeka' }, { value: 'rules', label: 'Kural tabanlı' }]} />
               <p className="mt-1.5 text-[11.5px] leading-snug text-muted">
                 {mode === 'ai'
                   ? aiReady
                     ? `Her karar anında durum ${health!.model} modeline gönderilir; yanıt gelene kadar simülasyon bekler.`
-                    : 'Sunucuda API anahtarı yok. .env dosyasına OPENAI_API_KEY ekleyip sunucuyu yeniden başlatın; o zamana kadar kararları kural tabanlı komutan verir.'
+                    : 'Yapay zeka şu an bağlı değil. Simülasyon kural tabanlı komutanla devam eder.'
                   : 'Sabit kurallarla karar verir: küçük yangında kanatlardan söndürme, büyüyünce güvenlik sınırı, tehlikedeki yerleşimlerde tahliye.'}
               </p>
             </div>
@@ -221,13 +208,13 @@ export function Command() {
             {run.status === 'running' ? (
               <button onClick={run.stop} className="flex flex-1 items-center justify-center gap-1.5 border border-fire/60 px-3 py-2 text-[13px] font-semibold text-fire hover:bg-fire/10"><Square size={14} /> Durdur</button>
             ) : (
-              <button onClick={begin} className="flex flex-1 items-center justify-center gap-1.5 bg-fire px-3 py-2 text-[13px] font-semibold text-white hover:bg-fire/90"><Play size={14} /> {done ? 'Yeniden başlat' : 'Müdahaleyi başlat'}</button>
+              <button onClick={begin} className="fg-button fg-button--primary flex-1"><Play size={14} /> {done ? 'Yeniden başlat' : 'Müdahaleyi başlat'}</button>
             )}
             {run.status !== 'idle' && run.status !== 'running' && <button onClick={run.reset} aria-label="Sıfırla" className="border border-line2 px-2.5 text-muted hover:text-ink"><RotateCcw size={14} /></button>}
           </div>
         </Panel>
 
-        {rec && <ResourcesPanel rec={rec} step={head} />}
+        {rec && live && <ResourcesPanel rec={rec} step={run.headMin / live.stepMin} stepMin={live.stepMin} />}
 
         <p className="text-[11px] leading-snug text-muted">
           Temsili simülasyon. Söndürme etkileri basitleştirilmiştir; yapay zekanın kararları doğrulanmış yangın taktiği değildir ve gerçek bir operasyonu yönlendirmez.
@@ -236,17 +223,37 @@ export function Command() {
 
       {/* map + incident strip */}
       <div className="flex min-h-[620px] min-w-0 flex-1 flex-col lg:min-h-0">
-        <div className="grid grid-cols-2 items-center gap-x-5 gap-y-2 border-b border-line bg-panel px-4 py-2.5 md:grid-cols-6">
+        <div className="fg-command-metrics">
           <Stat label="Yanan alan" value={stat ? fmtHa(stat.affectedHa) : '–'} unit="ha" tone="amber" />
           <Stat label="Şu an yanan" value={stat ? fmtHa(stat.burningHa) : '–'} unit="ha" tone="fire" />
-          <Stat label="Tahliye edilen" value={rec ? evacuated.toLocaleString('en-US') : '–'} unit="kişi" />
+          <Stat label="Tahliye edilen" value={rec ? evacuated.toLocaleString('tr-TR') : '–'} unit="kişi" />
           <Stat label="Müdahalesiz olsaydı" value={done && rec ? fmtHa(rec.baseline.affectedHa) : '–'} unit={done ? 'ha' : ''} hint="Aynı yangın, aynı süre, hiç müdahale olmadan" />
-          <div className="col-span-2 md:order-last md:col-span-1 md:justify-self-end">
+          <div className="self-center justify-self-end">
             <Segmented<'2d' | '3d'> label="Harita görünümü" value={view} onChange={setView} options={[{ value: '2d', label: '2B' }, { value: '3d', label: '3B' }]} />
           </div>
           <Stat label="Kurtarılan alan" value={done && rec && live ? fmtHa(Math.max(0, rec.baseline.affectedHa - live.series[live.series.length - 1].affectedHa)) : '–'} unit={done ? 'ha' : ''} tone="forest" />
         </div>
-        <div className="relative min-h-[420px] flex-1">
+          <div className="fg-command-situation">
+            {run.status === 'idle' ? (
+              <div className="fg-command-status flex items-center gap-2 text-[11px]"><span className="fg-status-dot is-active" /> Senaryo hazır <span className="text-muted">· Müdahale bekleniyor</span></div>
+            ) : run.thinking ? (
+              <div className="fg-command-status flex items-start gap-2 text-[11px]">
+                <Loader2 size={15} className="mt-0.5 shrink-0 animate-spin text-water" />
+                <span>
+                  <b>{mode === 'ai' && aiReady ? 'ChatGPT değerlendiriyor' : 'Komutan değerlendiriyor'}</b> · {Tm(run.headMin)}
+                  <span className="block text-muted">{run.pending?.trigger}</span>
+                </span>
+              </div>
+            ) : (
+              <div className="fg-command-status text-[11px]">
+                <b>{Tm(run.headMin)}</b>
+                {w && <span className="text-muted"> · rüzgar {Math.round(w.windSpeedKmh)} km/sa {compass(w.windFromDeg)}</span>}
+                {lastDecision && <span> · {lastDecision.output.phase}</span>}
+                {rec?.extinguishedStep !== null && rec?.extinguishedStep !== undefined && head >= rec.extinguishedStep && <span className="text-forest"> · yangın söndü</span>}
+              </div>
+            )}
+          </div>
+        <div className="fg-command-map relative min-h-[420px] flex-1">
           {view === '3d' ? (
             <Suspense fallback={<div className="flex h-full items-center justify-center bg-bg text-[13px] text-muted"><Loader2 size={16} className="mr-2 animate-spin" />3B harita yükleniyor…</div>}>
               <Map3D grid={grid} result={live} rec={rec} clockRef={run.clockRef} settlements={region.settlements} ignition={config.ignition} />
@@ -271,7 +278,7 @@ export function Command() {
               const z = zoneOfCell(live, cellOf(grid, lat, lon))
               setOpenZone(z >= 0 && zoneColors[z] ? { zone: z, at: [lat, lon] } : null)
             }}
-            mode={(compareBefore && before) || (compare && run.baseline) ? 'diff' : live ? 'fire' : 'fuel'}
+            mode={(compareBefore && before) || (compare && run.baseline) ? 'diff' : live ? 'fire' : 'none'}
             fitGrid
             fitKey={config.areaId}
             hud
@@ -324,27 +331,7 @@ export function Command() {
           </MapStage>
           )}
 
-          {/* status */}
-          <div className="pointer-events-none absolute left-14 top-2 z-[600] max-w-[420px]">
-            {run.status === 'idle' ? (
-              <div className="border border-line2 bg-bg/92 px-3 py-2 text-[12.5px]">Müdahale zamanını ve komutanı seçip <b>Müdahaleyi başlat</b>'a basın. Yangın başlar, komutan her karar anında durumu değerlendirir.</div>
-            ) : run.thinking ? (
-              <div className="flex items-start gap-2 border border-water/50 bg-bg/92 px-3 py-2 text-[12.5px]">
-                <Loader2 size={15} className="mt-0.5 shrink-0 animate-spin text-water" />
-                <span>
-                  <b>{mode === 'ai' && aiReady ? 'ChatGPT değerlendiriyor' : 'Komutan değerlendiriyor'}</b> · {Tm(run.headMin)}
-                  <span className="block text-muted">{run.pending?.trigger}</span>
-                </span>
-              </div>
-            ) : (
-              <div className="border border-line2 bg-bg/92 px-3 py-1.5 text-[12.5px]">
-                <b>{Tm(run.headMin)}</b>
-                {w && <span className="text-muted"> · rüzgar {Math.round(w.windSpeedKmh)} km/sa {compass(w.windFromDeg)}</span>}
-                {lastDecision && <span> · {lastDecision.output.phase}</span>}
-                {rec?.extinguishedStep !== null && rec?.extinguishedStep !== undefined && head >= rec.extinguishedStep && <span className="text-forest"> · yangın söndü</span>}
-              </div>
-            )}
-          </div>
+
         </div>
         <IncidentStrip run={run} rec={rec} live={live} onSelect={(i) => { setSelected(i); run.setPlaying(false); run.setHead(rec!.decisions[i].step) }} />
       </div>
@@ -362,7 +349,7 @@ export function Command() {
                 </div>
               </div>
               <Stat label="Yangının ilerleme yönü" value={stat.headingDeg === null ? '–' : compass(stat.headingDeg)} unit={stat.headingDeg === null ? '' : `${Math.round(stat.headingDeg)}°`} tone="fire" />
-              <Stat label="Cephe hızı" value={Math.round(stat.rosMh).toLocaleString('en-US')} unit="m/sa" hint="En uzak yangın noktasının son bir saatteki ilerlemesi" />
+              <Stat label="Cephe hızı" value={Math.round(stat.rosMh).toLocaleString('tr-TR')} unit="m/sa" hint="En uzak yangın noktasının son bir saatteki ilerlemesi" />
               <Stat label="Şu an yanan" value={fmtHa(stat.burningHa)} unit="ha" tone="amber" />
               <Stat label="Nem / sıcaklık" value={`%${Math.round(w.humidityPct)}`} unit={`${Math.round(w.temperatureC)} °C`} />
               <Stat label="Son 1 saatte sıçrama" value={(live.spots ?? []).filter((x) => x.step <= head && x.step > head - 6).length} unit="kor" tone={w.windSpeedKmh > 14 ? 'amber' : 'ink'} hint="Rüzgarın taşıdığı korların başlattığı yeni yangınlar; 14 km/sa altında kor sıçraması olmaz" />
@@ -540,7 +527,7 @@ function ZoneOverlay({ result, plan, ctx, open, setOpen }: { result: SimResult; 
         if (!z) return null
         const info = ACTION_INFO[z.action]
         return L.divIcon({
-          html: `<div class="fg-zone-tag" style="border-color:${info.color}"><span style="background:${info.color}"></span>${sec} · ${info.label.split(' (')[0]}</div>`,
+          html: `<div class="fg-zone-tag" style="border-color:${info.color}"><span style="background:${info.color}"></span>${sec}</div>`,
           className: 'fg-icon',
           iconSize: [0, 0],
           iconAnchor: [0, 0],
@@ -666,8 +653,8 @@ export function measureTag(type: Measure['type'], label: string, priority: numbe
     ic = L.divIcon({
       html: `<div class="fg-mtag fg-mtag-${state}" style="--c:${info.color}"><span class="fg-mtag-badge">${svg}${priority ? `<b>${priority}</b>` : ''}</span><span class="fg-mtag-label">${label}</span></div>`,
       className: 'fg-icon',
-      iconSize: [0, 0],
-      iconAnchor: [0, 0],
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
     })
     measureTagCache.set(key, ic)
   }
@@ -712,7 +699,7 @@ export function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = f
         <Circle key={`r${m.id}`} center={m.point!} radius={m.type === 'gozetleme' ? 15000 : m.type === 'su_deposu' ? 1200 : 2500} interactive={false} pathOptions={{ color: MEASURE_INFO[m.type].color, weight: 1.2, opacity: faded ? 0.15 : 0.45, dashArray: m.type === 'gozetleme' ? '2 7' : '4 5', fillColor: MEASURE_INFO[m.type].color, fillOpacity: faded ? 0 : m.type === 'gozetleme' ? 0.03 : 0.08 }} />
       ))}
       {measures.map((m) => (
-        <Marker key={m.id} position={anchor(m)} icon={tag(m)} zIndexOffset={faded ? 0 : rank.has(m.id) ? 900 : 700} eventHandlers={{ click: () => setOpen(m.id) }} keyboard={false} />
+        <Marker key={m.id} position={anchor(m)} icon={tag(m)} zIndexOffset={faded ? 0 : rank.has(m.id) ? 900 : 700} eventHandlers={{ click: () => setOpen(m.id) }} title={m.title} />
       ))}
       {sel && (
         <Popup position={anchor(sel)} className="fg-popup" maxWidth={340} minWidth={290} eventHandlers={{ remove: () => setOpen(null) }}>
@@ -733,33 +720,35 @@ export function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = f
   )
 }
 
-export function PreventionPanel({ prev, cellM, canRun, onRun, onOpen, open }: { prev: { cands: Measure[]; plan: PreventionPlan; source: 'ai' | 'rules'; model?: string; reason?: string }; cellM: number; canRun: boolean; onRun: () => void; onOpen: (id: string) => void; open: string | null }) {
+export function PreventionPanel({ prev, cellM, canRun, onRun, onOpen, open }: { prev: { cands: Measure[]; plan: PreventionPlan; source: 'ai' | 'rules'; model?: string; reason?: string }; cellM: number; canRun: boolean; onRun: () => void; onOpen: (id: string | null) => void; open: string | null }) {
   const chosen = [...prev.plan.selected].sort((a, b) => a.priority - b.priority).map((x) => ({ x, m: prev.cands.find((c) => c.id === x.id)! })).filter((r) => r.m)
   const cost = chosen.reduce((s, r) => s + r.m.costK, 0)
   return (
     <Panel title="Bugün ne yapabiliriz?" action={<span className={`flex items-center gap-1 text-[11px] ${prev.source === 'ai' ? 'text-water' : 'text-muted'}`}>{prev.source === 'ai' ? <Bot size={12} /> : <Cpu size={12} />}{prev.source === 'ai' ? `ChatGPT${prev.model ? ` · ${prev.model}` : ''}` : 'Kural tabanlı'}</span>}>
-      {prev.reason && <p className="mb-2 text-[11.5px] text-amber">Yapay zekaya ulaşılamadı: {prev.reason}</p>}
+      {prev.reason && <p className="mb-2 text-[11.5px] text-amber">Yapay zeka bağlantısı kullanılamadı. Öneriler kural tabanlı hazırlandı.</p>}
       <p className="text-[13px] leading-snug">{prev.plan.summary}</p>
       <div className="mt-2 grid grid-cols-3 gap-2 border-y border-line py-2">
         <Stat label="Önlem" value={chosen.length} />
-        <Stat label="Temsili maliyet" value={(cost / 1000).toFixed(1)} unit="M TL" />
+        <Stat label="Temsili maliyet" value={(cost / 1000).toLocaleString('tr-TR', { maximumFractionDigits: 1 })} unit="M TL" />
         <Stat label="Temizlenen alan" value={Math.round(chosen.reduce((s, r) => s + r.m.cells.length, 0) * cellM * cellM / 10000)} unit="ha" />
       </div>
       <ol className="mt-2 space-y-2">
-        {chosen.map(({ x, m }) => (
+        {chosen.map(({ x, m }) => {
+          const Icon = MEASURE_ICON[m.type]
+          return (
           <li key={m.id}>
-            <button onClick={() => onOpen(m.id)} aria-expanded={open === m.id} className={`w-full border-l-[3px] py-1 pl-2.5 text-left text-[12.5px] leading-snug hover:bg-panel2 ${open === m.id ? 'bg-panel2' : ''}`} style={{ borderColor: MEASURE_INFO[m.type].color }}>
-              <div className="flex items-baseline justify-between gap-2"><b>{x.priority}. {m.title}</b><span className="shrink-0 text-[11.5px] text-muted">~{(m.costK / 1000).toFixed(1)} M TL</span></div>
-              <div className="text-[11.5px] text-muted">{m.where}{measureSize(m, cellM) ? ` · ${measureSize(m, cellM)}` : ''}</div>
-              <div className="mt-0.5 text-[12px]">{MEASURE_INFO[m.type].what.split('. ')[0]}.</div>
-              <div className="mt-0.5 text-[11.5px] text-amber">{x.rationale}</div>
+            <button onClick={() => onOpen(open === m.id ? null : m.id)} aria-expanded={open === m.id} className={`fg-prevention-card ${open === m.id ? 'is-open' : ''}`} style={{ ['--measure-color' as string]: MEASURE_INFO[m.type].color }}>
+              <div className="flex items-start gap-2"><span className="fg-event-icon" style={{ ['--event-color' as string]: MEASURE_INFO[m.type].color }}><Icon size={14} /></span><div className="min-w-0 flex-1"><span className="fg-eyebrow">Öncelik {x.priority}</span><b className="mt-0.5 block text-[12px] font-semibold leading-relaxed">{m.title}</b></div><ChevronDown size={13} className={`mt-1 shrink-0 text-muted ${open === m.id ? 'rotate-180' : ''}`} /></div>
+              <div className="mt-2 text-[10.5px] leading-relaxed text-muted">{m.where}{measureSize(m, cellM) ? ` · ${measureSize(m, cellM)}` : ''}</div>
+              <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-[10px]"><span className="text-muted">Temsili maliyet</span><b className="font-medium">~{(m.costK / 1000).toLocaleString('tr-TR', { maximumFractionDigits: 1 })} M TL</b></div>
+              {open === m.id && <div className="mt-3 space-y-2 border-t border-line pt-3"><p className="text-[11px] leading-relaxed">{MEASURE_INFO[m.type].what}</p><p className="rounded-md bg-amber/5 p-2 text-[10.5px] leading-relaxed text-amber">{x.rationale}</p></div>}
             </button>
           </li>
-        ))}
+        )})}
       </ol>
       <p className="mt-2 text-[11.5px] text-muted">Ayrıntı için bir önleme ya da haritadaki etiketine tıklayın. {prev.plan.expected_effect}</p>
       {canRun && (
-        <button onClick={onRun} className="mt-2.5 flex w-full items-center justify-center gap-1.5 bg-fire px-3 py-2 text-[13px] font-semibold text-white hover:bg-fire/90"><Play size={14} /> Önlemlerle simülasyonu başlat</button>
+        <button onClick={onRun} className="fg-button fg-button--primary mt-2.5 w-full"><Play size={14} /> Önlemlerle simülasyonu başlat</button>
       )}
       <p className="mt-2 text-[11px] leading-snug text-muted">{prev.plan.caveats}</p>
     </Panel>
@@ -801,7 +790,7 @@ function ComparisonPanel({ before, after }: { before: SimResult; after: SimResul
           {line('Yanan orman', `${fmtHa(a.forest)} ha`, `${fmtHa(b.forest)} ha`, b.forest <= a.forest)}
           {line('Ulaşılan yerleşim', String(a.settl), String(b.settl), b.settl <= a.settl)}
           {line('Söndürme', a.out === null ? '–' : T(a.out), b.out === null ? '–' : T(b.out), a.out !== null && b.out !== null ? b.out <= a.out : null)}
-          {line('Tahliye edilen', a.evac.toLocaleString('en-US'), b.evac.toLocaleString('en-US'), b.evac <= a.evac)}
+          {line('Tahliye edilen', a.evac.toLocaleString('tr-TR'), b.evac.toLocaleString('tr-TR'), b.evac <= a.evac)}
         </tbody>
       </table>
       <p className="mt-2 text-[11.5px] text-muted">Aynı tutuşma noktası, hava ve komutan; yalnızca önlemler farklı. Haritada "Önlem öncesiyle karşılaştır" ile farkı görün.</p>
@@ -813,7 +802,7 @@ function StrategyPanel({ plan, showZones, onToggleZones }: { plan: { plan: Recov
   const p = plan.plan
   return (
     <Panel title="Yangın sonrası stratejisi" action={<span className={`flex items-center gap-1 text-[11px] ${plan.source === 'ai' ? 'text-water' : 'text-muted'}`}>{plan.source === 'ai' ? <Bot size={12} /> : <Cpu size={12} />}{plan.source === 'ai' ? `ChatGPT${plan.model ? ` · ${plan.model}` : ''}` : 'Kural tabanlı'}</span>}>
-      {plan.reason && <p className="mb-2 text-[11.5px] text-amber">Yapay zekaya ulaşılamadı: {plan.reason}</p>}
+      {plan.reason && <p className="mb-2 text-[11.5px] text-amber">Yapay zeka bağlantısı kullanılamadı. Strateji kural tabanlı hazırlandı.</p>}
       <p className="text-[13px] leading-snug">{p.summary}</p>
       <div className="mt-3 flex items-center justify-between">
         <h4 className="text-[12.5px] font-semibold">Bölgeler <span className="font-normal text-muted">· haritada bölgeye tıklayın</span></h4>
@@ -852,13 +841,13 @@ function StrategyPanel({ plan, showZones, onToggleZones }: { plan: { plan: Recov
 function DecisionCard({ d, open, onToggle }: { d: Decision; open: boolean; onToggle: () => void }) {
   const tone = phaseTone(d.output.phase)
   return (
-    <li className="px-3 py-2.5">
+    <li className={`fg-decision-card ${open ? 'is-open' : ''}`} style={{ ['--decision-color' as string]: tone.color }}>
       <button onClick={onToggle} aria-expanded={open} className="flex w-full items-start gap-2 text-left">
-        <span className="mt-1 h-2.5 w-2.5 shrink-0 rotate-45" style={{ background: tone.color }} />
+        <span className="fg-event-icon" style={{ ['--event-color' as string]: tone.color }}><Milestone size={14} /></span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-baseline gap-x-2">
-            <b className="text-[13.5px]">{T(d.step)}</b>
-            <span className="text-[13px]">{d.output.phase}</span>
+            <b className="text-[11px] font-semibold" style={{ color: tone.color }}>{T(d.step)}</b>
+            <span className="text-[12px] font-medium">{d.output.phase}</span>
           </span>
           <span className="block text-[11.5px] text-muted">{d.trigger}</span>
         </span>
@@ -869,14 +858,14 @@ function DecisionCard({ d, open, onToggle }: { d: Decision; open: boolean; onTog
         {open ? <ChevronDown size={14} className="mt-0.5 text-muted" /> : <ChevronRight size={14} className="mt-0.5 text-muted" />}
       </button>
       {open && (
-        <div className="mt-2 pl-[18px]">
-          <p className="text-[12.5px] leading-snug">{d.output.assessment}</p>
+        <div className="fg-decision-body">
+          <p className="text-[12px] leading-relaxed text-ink-soft">{d.output.assessment}</p>
           {d.fallbackReason && <p className="mt-1 text-[11.5px] text-amber">Yapay zekaya ulaşılamadı: {d.fallbackReason}</p>}
           <ul className="mt-2 space-y-1.5">
             {d.output.actions.map((a, k) => (
-              <li key={k} className="border-l-2 border-line2 pl-2 text-[12.5px] leading-snug">
-                <span className="font-medium">{d.applied[k]}</span>
-                <span className="block text-[11.5px] text-muted">{a.rationale}</span>
+              <li key={k} className="fg-decision-action text-[11px] leading-relaxed">
+                <ChevronRight size={13} className="mt-0.5 shrink-0 text-muted" /><div><span className="font-medium">{d.applied[k]}</span>
+                <span className="mt-1 block text-[10.5px] text-muted">{a.rationale}</span></div>
               </li>
             ))}
           </ul>
@@ -886,107 +875,29 @@ function DecisionCard({ d, open, onToggle }: { d: Decision; open: boolean; onTog
   )
 }
 
-function ResourcesPanel({ rec, step }: { rec: ResponseRecord; step: number }) {
-  const rows = rec.tracks.map((t) => ({ t, p: at(t.points, step) }))
-  return (
-    <Panel title="Kaynaklar" pad={false} action={<span className="text-[11px] text-muted" title="Gerçek sayıları src/data/inventory.json dosyasına girin">envanter: {inventoryFor('').status}</span>}>
-      <ul className="divide-y divide-line">
-        {rows.map(({ t, p }) => {
-          const { Icon, color } = KIND[t.kind]
-          const st = STATUS[p?.status ?? 'unavailable']
-          // on a trip: time left to the target; not yet in service: when it will be
-          const mv = activeMove(t.moves, step)
-          const going = mv && (mv.path[0][0] !== mv.path[mv.path.length - 1][0] || mv.path[0][1] !== mv.path[mv.path.length - 1][1])
-          const leftMin = going ? Math.max(1, Math.round((mv!.toStep - step) * 10)) : 0
-          const ready = !p || p.status === 'unavailable' ? t.points.find((x) => x.status !== 'unavailable' && x.step > step) : null
-          return (
-            <li key={t.id} className="flex items-center gap-2 px-3 py-1.5 text-[12.5px]">
-              <Icon size={14} style={{ color }} className="shrink-0" />
-              <span className="min-w-0 flex-1 truncate">{t.name}</span>
-              {going ? (
-                <span className="shrink-0 text-right leading-tight" title={`Varış T+${fmtDuration(Math.round(mv!.toStep * 10))}`}>
-                  <b className="tabular-nums text-ink">{leftMin} dk</b>
-                  <span className="block text-[10.5px] text-muted">{t.kind === 'heli' || t.kind === 'plane' ? (p?.status === 'dropping' ? 'su seferi' : 'uçuşta') : 'hedefe'}</span>
-                </span>
-              ) : ready ? (
-                <span className="shrink-0 text-right leading-tight text-muted"><span className="tabular-nums">{fmtDuration((ready.step - step) * 10)}</span><span className="block text-[10.5px]">sonra hazır</span></span>
-              ) : (
-                <span className={`shrink-0 ${st.tone}`}>{p?.status === 'unavailable' ? 'görev bekliyor' : st.label}</span>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </Panel>
-  )
-}
-
-/** The incident strip: computed part of the run, phases as coloured bands, decisions as diamonds, the playhead. */
+/** Incident phases and decision points share the same playback controls as the Studio. */
 function IncidentStrip({ run, rec, live, onSelect }: { run: ReturnType<typeof useCommandRun>; rec: ResponseRecord | null; live: SimResult | null; onSelect: (i: number) => void }) {
   const total = Math.max(36, live ? Math.ceil(Math.max(run.frontier, 6) / 36) * 36 : 72)
-  const pct = (s: number) => `${(s / total) * 100}%`
-  const hours = total / 6
-  const every = [1, 2, 3, 6, 12].find((e) => hours / e <= 12) ?? 12
   const bands: { from: number; to: number; color: string; name: string }[] = []
-  if (rec)
-    rec.decisions.forEach((d, i) => {
-      const next = rec.decisions[i + 1]?.step ?? run.frontier
-      const tone = phaseTone(d.output.phase)
-      const last = bands[bands.length - 1]
-      if (last && last.name === tone.name) last.to = next
-      else bands.push({ from: d.step, to: next, ...tone })
-    })
-  const legend: ReactNode = [...new Map(bands.map((b) => [b.name, b.color])).entries()].map(([name, color]) => (
-    <span key={name} className="flex items-center gap-1"><span className="h-2 w-3" style={{ background: color }} />{name}</span>
-  ))
+  rec?.decisions.forEach((decision, index) => {
+    const next = rec.decisions[index + 1]?.step ?? run.frontier
+    const tone = phaseTone(decision.output.phase)
+    const last = bands[bands.length - 1]
+    if (last && last.name === tone.name) last.to = next
+    else bands.push({ from: decision.step, to: next, ...tone })
+  })
   return (
-    <div className="border-t border-line bg-panel px-3 py-2" role="group" aria-label="Olay zaman şeridi">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1">
-          <button onClick={() => run.setPlaying(!run.playing)} disabled={!live} aria-label={run.playing ? 'Duraklat' : 'Oynat'} className="flex h-8 w-8 items-center justify-center bg-forest text-bg hover:bg-forest/85 disabled:opacity-40">{run.playing ? <Pause size={16} /> : <Play size={16} />}</button>
-          <div className="flex border border-line2" role="radiogroup" aria-label="Oynatma hızı">
-            {[0.5, 1, 2, 4, 8].map((s) => (
-              <button key={s} role="radio" aria-checked={run.speed === s} onClick={() => run.setSpeed(s)} className={`px-1.5 py-1 text-[11.5px] font-medium ${run.speed === s ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>{s}×</button>
-            ))}
-          </div>
-        </div>
-        <div className="relative h-11 min-w-0 flex-1">
-          {/* track */}
-          <div className="absolute inset-x-0 top-3 h-4 bg-line/60" />
-          <div className="absolute left-0 top-3 h-4 bg-line2" style={{ width: pct(run.frontier) }} />
-          {bands.map((b, i) => (
-            <div key={i} className="absolute top-3 h-4 opacity-80" style={{ left: pct(b.from), width: pct(Math.max(0.5, b.to - b.from)), background: b.color }} title={b.name} />
-          ))}
-          {rec?.extinguishedStep != null && <div className="absolute top-1.5 h-7 w-0.5 bg-forest" style={{ left: pct(rec.extinguishedStep) }} title="Yangın söndü" />}
-          {rec?.decisions.map((d, i) => (
-            <button key={i} onClick={() => onSelect(i)} aria-label={`${T(d.step)} kararı: ${d.output.phase}`} className="absolute top-[7px] h-3 w-3 -translate-x-1/2 rotate-45 border border-bg hover:scale-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink" style={{ left: pct(d.step), background: d.source === 'ai' ? '#3b9be0' : 'var(--color-ink)' }} />
-          ))}
-          {/* playhead */}
-          <div className="pointer-events-none absolute top-0 h-8 w-0.5 bg-ink" style={{ left: pct(run.headMin / 10) }} />
-          <input
-            type="range"
-            min={0}
-            max={total}
-            value={run.head}
-            disabled={!live}
-            onChange={(e) => { run.setPlaying(false); run.setHead(Number(e.target.value)) }}
-            aria-label="Simülasyon zamanı"
-            className="absolute inset-x-0 top-2 h-6 cursor-pointer opacity-0"
-          />
-          <div className="absolute inset-x-0 top-8 text-[10.5px] text-muted">
-            {Array.from({ length: Math.floor(hours / every) + 1 }, (_, i) => i * every).map((h) => (
-              <span key={h} className="absolute" style={{ left: pct(h * 6), transform: h === 0 ? 'none' : 'translateX(-50%)' }}>{h}sa</span>
-            ))}
-          </div>
-        </div>
-      </div>
-      {bands.length > 0 && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 pl-[124px] text-[11px] text-muted">
-          {legend}
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rotate-45 bg-water" />ChatGPT kararı</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rotate-45 bg-ink" />Kural kararı</span>
-        </div>
-      )}
-    </div>
+    <>
+      {bands.length > 0 && <div className="fg-phase-timeline" aria-label="Müdahale evreleri">
+        <div className="fg-phase-track">{bands.map((band, index) => <span key={index} title={band.name} style={{ left: band.from / total * 100 + '%', width: (band.to - band.from) / total * 100 + '%', background: band.color }} />)}</div>
+        <div className="fg-phase-legend">{[...new Map(bands.map((band) => [band.name, band.color])).entries()].map(([name, color]) => <span key={name}><i style={{ background: color }} />{name}</span>)}</div>
+      </div>}
+      <PlaybackBar step={run.head} steps={total} playing={run.playing} onPlay={() => run.setPlaying(!run.playing)}
+        onSeek={(step) => { run.setPlaying(false); run.setHead(Math.min(step, run.frontier)) }}
+        onRestart={() => { run.setPlaying(false); run.setHead(0) }} speed={run.speed} onSpeed={run.setSpeed} speeds={[0.5, 1, 2, 4, 8]} disabled={!live} label="Olay zaman şeridi"
+        markers={(rec?.decisions ?? []).map((decision, index) => ({ id: 'decision-' + index, step: decision.step, label: T(decision.step) + ' kararı: ' + decision.output.phase, color: decision.source === 'ai' ? 'var(--color-water)' : 'var(--color-amber)', onSelect: () => onSelect(index) }))}
+        summary={<span><i className={'fg-status-dot ' + (run.status === 'running' ? 'is-active' : '')} />{run.thinking ? 'Karar değerlendiriliyor' : run.status === 'idle' ? 'Başlamaya hazır' : run.status === 'done' ? 'Çalıştırma tamamlandı' : run.status === 'stopped' ? 'Durduruldu' : 'Müdahale sürüyor'}</span>}
+      />
+    </>
   )
 }

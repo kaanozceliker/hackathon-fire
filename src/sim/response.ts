@@ -234,7 +234,7 @@ export class ResponseRun {
 
   private addResource(id: string, name: string, kind: ResourceKind, base: LatLon, availableFromStep: number) {
     this.resources.push({ id, name, kind, base, pos: base, status: 'unavailable', availableFromStep, task: null, carry: 0, path: null, pathFrom: 0, pathTo: 0, nextDropStep: 0, dispatched: false })
-    this.tracks.push({ id, name, kind, points: [], moves: [] })
+    this.tracks.push({ id, name, kind, base: [...base], availableFromStep, points: [], moves: [] })
   }
 
   get step() {
@@ -588,9 +588,9 @@ export class ResponseRun {
       const fill = (air.fillMin / STEP_MIN) * k
       const tr = this.tracks.find((t) => t.id === r.id)!
       const s0 = this.step
-      tr.moves.push({ fromStep: s0, toStep: s0 + fly, path: [p, w.pos] })
-      tr.moves.push({ fromStep: s0 + fly, toStep: s0 + fly + fill, path: [w.pos, w.pos] })
-      tr.moves.push({ fromStep: s0 + fly + fill, toStep: r.nextDropStep - 0.001, path: [w.pos, p] })
+      tr.moves.push({ fromStep: s0, toStep: s0 + fly, path: [p, w.pos], purpose: 'water' })
+      tr.moves.push({ fromStep: s0 + fly, toStep: s0 + fly + fill, path: [w.pos, w.pos], purpose: 'refill' })
+      tr.moves.push({ fromStep: s0 + fly + fill, toStep: r.nextDropStep - 0.001, path: [w.pos, p], purpose: 'drop' })
       this.scoops.push({ step: s0 + fly, untilStep: s0 + fly + fill, lat: w.pos[0], lon: w.pos[1], kind: r.kind as 'heli' | 'plane' })
     }
   }
@@ -1028,7 +1028,11 @@ export class ResponseRun {
 
   /** Keeps the trip just ordered, so playback can move the icon along the road instead of between samples. */
   private recordMove(r: Resource) {
-    if (r.path && r.path.length > 1) this.tracks.find((t) => t.id === r.id)!.moves.push({ fromStep: r.pathFrom, toStep: r.pathTo, path: r.path.slice() })
+    if (r.path && r.path.length > 1) this.tracks.find((t) => t.id === r.id)!.moves.push({
+      fromStep: r.pathFrom, toStep: r.pathTo, path: r.path.slice(),
+      purpose: r.task?.kind === 'return' ? 'return' : r.task?.kind === 'mopup' ? 'patrol' : 'dispatch',
+      ...(r.task?.kind === 'mopup' ? { arrivalStep: r.task.patrolFrom } : {}),
+    })
   }
 
   /** Road route from a resource to a point, plus the off-road leg; returns the path and travel steps. */

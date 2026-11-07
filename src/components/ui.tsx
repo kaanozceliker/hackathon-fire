@@ -3,10 +3,10 @@ import { Info } from 'lucide-react'
 
 export function Panel({ title, action, children, className = '', pad = true }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; pad?: boolean }) {
   return (
-    <section className={`rounded-lg border border-line bg-panel shadow-[0_1px_2px_rgba(0,0,0,0.06)] ${className}`}>
+    <section className={`fg-panel ${className}`}>
       {title && (
-        <header className="flex min-h-10 items-center justify-between gap-2 border-b border-line px-3.5 py-2">
-          <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
+        <header className="fg-panel-header">
+          <h3 className="min-w-0 text-[12px] font-semibold text-ink">{title}</h3>
           {action}
         </header>
       )}
@@ -18,9 +18,9 @@ export function Panel({ title, action, children, className = '', pad = true }: {
 export function Stat({ label, value, unit, hint, tone = 'ink' }: { label: string; value: ReactNode; unit?: string; hint?: string; tone?: 'ink' | 'fire' | 'amber' | 'forest' | 'water' }) {
   const color = { ink: 'text-ink', fire: 'text-fire', amber: 'text-amber', forest: 'text-forest', water: 'text-water' }[tone]
   return (
-    <div className="min-w-0 border-l-2 border-line2 pl-2.5" title={hint}>
+    <div className="fg-stat" title={hint}>
       <div className="truncate text-[12px] text-muted">{label}</div>
-      <div className={`text-[22px] font-semibold leading-tight ${color}`}>
+      <div className={`fg-stat-value ${color}`}>
         {value}
         {unit && <span className="ml-1 text-[12px] font-normal text-muted">{unit}</span>}
       </div>
@@ -30,14 +30,23 @@ export function Stat({ label, value, unit, hint, tone = 'ink' }: { label: string
 
 export function Segmented<T extends string | number>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex gap-0.5 rounded-md border border-line bg-bg p-0.5">
+    <div role="radiogroup" aria-label={label} className="fg-segmented" onKeyDown={(e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+      e.preventDefault()
+      const index = options.findIndex((option) => option.value === value)
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : (index + (e.key === 'ArrowRight' ? 1 : -1) + options.length) % options.length
+      onChange(options[next].value)
+      e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus()
+    }}>
       {options.map((o) => (
         <button
           key={String(o.value)}
+          title={o.label}
           role="radio"
           aria-checked={o.value === value}
+          tabIndex={o.value === value ? 0 : -1}
           onClick={() => onChange(o.value)}
-          className={`flex-1 rounded px-2 py-1 text-[12.5px] font-medium ${o.value === value ? 'bg-panel text-ink shadow-[0_1px_2px_rgba(0,0,0,0.18)] ring-1 ring-forest/50' : 'text-muted hover:bg-panel2 hover:text-ink'}`}
+          className={o.value === value ? 'is-selected' : ''}
         >
           {o.label}
         </button>
@@ -57,7 +66,7 @@ export function SliderField({ label, value, min, max, step = 1, unit, onChange, 
           <span className="ml-0.5 font-normal text-muted">{unit}</span>
         </span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ ['--p' as string]: `${p}%` }} />
+      <input aria-label={label} type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ ['--p' as string]: `${p}%` }} />
     </label>
   )
 }
@@ -109,5 +118,5 @@ export function Legend({ title, items }: { title?: string; items: LegendItem[] }
   )
 }
 
-export const fmtHa = (ha: number) => (ha >= 100 ? Math.round(ha).toLocaleString('en-US') : ha.toFixed(1))
+export const fmtHa = (ha: number) => ha.toLocaleString('tr-TR', { minimumFractionDigits: ha < 100 ? 1 : 0, maximumFractionDigits: ha < 100 ? 1 : 0 })
 export const fmtT = (min: number) => `${Math.floor(min / 60)}sa ${String(Math.round(min % 60)).padStart(2, '0')}dk`

@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, PlayCircle, Route, Siren, History as HistoryIcon, ClipboardCheck, Moon, Shield, Sun, Info } from 'lucide-react'
+import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, Loader2, PlayCircle, Route, Siren, History as HistoryIcon, ClipboardCheck, Moon, Shield, Sun, Info } from 'lucide-react'
 import { useStore } from '../state/store'
 import { useTheme } from '../state/theme'
 import { SimBadge } from './ui'
+import { PageBoundary } from './PageBoundary'
 
 /** Menu in three groups, each item with a one-line description of what it is for. */
 const GROUPS: { title: string; items: { to: string; label: string; hint: string; icon: typeof Flame }[] }[] = [
@@ -46,6 +47,12 @@ const PURPOSE: Record<string, string> = {
 
 export function Shell({ title, children }: { title: string; children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth < 900)
+  useEffect(() => {
+    const narrow = window.matchMedia('(max-width: 899px)')
+    const update = () => { if (narrow.matches) setCollapsed(true) }
+    narrow.addEventListener('change', update)
+    return () => narrow.removeEventListener('change', update)
+  }, [])
   const { scenarios, active, setActive, restart, setPlaying, toast } = useStore()
   const nav = useNavigate()
   const { pathname } = useLocation()
@@ -58,9 +65,9 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
   }
   return (
     <div className="flex h-full bg-bg">
-      <aside className={`flex shrink-0 flex-col border-r border-line bg-panel transition-[width] duration-150 ${collapsed ? 'w-[60px]' : 'w-[244px]'}`}>
+      <aside className={`fg-sidebar flex shrink-0 flex-col border-r border-line transition-[width] duration-150 ${collapsed ? 'w-[64px]' : 'w-[216px]'}`}>
         {/* brand */}
-        <div className={`flex h-14 items-center gap-2.5 ${collapsed ? 'justify-center px-0' : 'px-4'}`}>
+        <div className={`flex h-[70px] items-center gap-2.5 ${collapsed ? 'justify-center px-0' : 'px-4'}`}>
           <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-forest/15 text-forest">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3l5 7h-3l4 6H6l4-6H7l5-7z" fill="currentColor" />
@@ -70,26 +77,27 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
           </span>
           {!collapsed && (
             <div className="min-w-0 leading-tight">
-              <div className="text-[17px] font-bold tracking-tight">ForestGuard</div>
-              <div className="text-[11.5px] text-muted">Orman yangını karar desteği</div>
+              <div className="fg-brand text-[17px] font-semibold">ForestGuard<span className="ml-0.5 text-forest">.</span></div>
+              <div className="mt-1 text-[8px] uppercase tracking-[.12em] text-muted">Yangın karar desteği</div>
             </div>
           )}
         </div>
 
         {/* menu */}
-        <nav className="flex-1 space-y-4 overflow-y-auto px-2.5 pb-3 pt-2" aria-label="Ana menü">
+        <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 pb-3 pt-4" aria-label="Ana menü">
           {GROUPS.map((g) => (
             <div key={g.title}>
-              {!collapsed ? <div className="px-2.5 pb-1 text-[11.5px] font-semibold text-muted">{g.title}</div> : <div className="mx-3 mb-2 border-t border-line" />}
+              {!collapsed ? <div className="fg-eyebrow px-2.5 pb-2">{g.title}</div> : <div className="mx-3 mb-2 border-t border-line" />}
               <ul className="space-y-0.5">
                 {g.items.map(({ to, label, hint, icon: Icon }) => (
                   <li key={to}>
                     <NavLink
                       to={to}
                       end={to === '/'}
+                      aria-label={label}
                       title={collapsed ? `${label} – ${hint}` : undefined}
                       className={({ isActive }) =>
-                        `group relative flex items-center gap-3 rounded-lg px-2.5 py-2 ${collapsed ? 'justify-center' : ''} ${isActive ? 'bg-forest/12 text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`
+                        `fg-nav-link group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 ${collapsed ? 'justify-center' : ''} ${isActive ? 'is-active text-ink' : 'text-muted hover:bg-panel2 hover:text-ink'}`
                       }
                     >
                       {({ isActive }) => (
@@ -98,8 +106,8 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
                           <Icon size={18} className={`shrink-0 ${isActive ? 'text-forest' : ''}`} />
                           {!collapsed && (
                             <span className="min-w-0">
-                              <span className="block truncate text-[14px] font-semibold leading-tight">{label}</span>
-                              <span className="block truncate text-[11.5px] leading-tight text-muted">{hint}</span>
+                              <span className="block truncate text-[12px] font-medium leading-tight">{label}</span>
+                              <span className="mt-1 block truncate text-[10px] leading-tight text-muted">{hint}</span>
                             </span>
                           )}
                         </>
@@ -113,7 +121,7 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
         </nav>
 
         <div className="space-y-1.5 border-t border-line p-2.5">
-          <button onClick={runDemo} title="Marmaris demo senaryosunu baştan oynat" className={`flex w-full items-center justify-center gap-2 rounded-lg bg-forest py-2 text-[13px] font-semibold text-white hover:bg-forest/85 ${collapsed ? 'px-0' : 'px-2'}`}>
+          <button onClick={runDemo} title="Marmaris demo senaryosunu baştan oynat" className={`fg-button w-full ${collapsed ? 'px-0' : 'px-2'}`}>
             <PlayCircle size={16} />
             {!collapsed && 'Demoyu oynat'}
           </button>
@@ -124,27 +132,34 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-line bg-panel px-5 py-2">
+        <header className="fg-app-header flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-3">
           <div className="min-w-0">
-            <h1 className="text-[17px] font-semibold leading-tight">{title}</h1>
-            {PURPOSE[pathname] && <p className="truncate text-[12.5px] leading-tight text-muted">{PURPOSE[pathname]}</p>}
+            <div className="fg-eyebrow mb-1">Çalışma alanı <span className="mx-1.5 opacity-40">/</span> {GROUPS.find((group) => group.items.some((item) => item.to === pathname))?.title ?? 'ForestGuard'}</div>
+            <h1 className="text-[15px] font-semibold leading-tight tracking-tight">{title}</h1>
+            {PURPOSE[pathname] && <p className="sr-only">{PURPOSE[pathname]}</p>}
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-2 text-[12.5px] text-muted">
-              <span className="hidden sm:inline">Senaryo</span>
-              <select value={active.id} onChange={(e) => setActive(e.target.value)} className="max-w-[240px] border border-line2 bg-bg px-2.5 py-1.5 text-[13px] text-ink">
+              <span className="fg-eyebrow hidden xl:inline">Etkin senaryo</span>
+              <select aria-label="Etkin senaryo" value={active.id} onChange={(e) => setActive(e.target.value)} className="max-w-[190px] border border-line2 bg-bg px-2.5 py-1.5 text-[13px] text-ink sm:max-w-[240px]">
                 {scenarios.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             </label>
             <SimBadge />
-            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'} title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'} className="flex h-9 w-9 items-center justify-center rounded-full border border-line2 text-muted hover:border-muted hover:text-ink">
+            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'} title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'} className="fg-theme-button flex items-center justify-center border border-line text-muted hover:border-muted hover:text-ink">
               {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             </button>
           </div>
         </header>
-        <main className="relative min-h-0 flex-1 overflow-auto">{children}</main>
+        <main className="relative min-h-0 flex-1 overflow-auto">
+          <PageBoundary key={pathname}>
+            <Suspense fallback={<div role="status" className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted"><Loader2 size={18} className="animate-spin" /> Bölüm yükleniyor…</div>}>
+              {children}
+            </Suspense>
+          </PageBoundary>
+        </main>
       </div>
 
       {toast && (

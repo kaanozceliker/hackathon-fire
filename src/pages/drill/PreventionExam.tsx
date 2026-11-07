@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import L from 'leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Circle, CircleMarker, Marker, Polygon, Polyline, Tooltip } from 'react-leaflet'
-import { ArrowLeft, Bot, Check, Cpu, Droplets, Eye, Flame, Home, Loader2, Milestone, RotateCcw, Sparkles, Trash2, Trees, Truck, Undo2, Video, X } from 'lucide-react'
+import { ArrowLeft, Bot, Check, ChevronDown, Cpu, Droplets, Eye, Flame, Home, Loader2, Milestone, RotateCcw, Sparkles, Trash2, Trees, Truck, Undo2, Video, X } from 'lucide-react'
 import { MapStage } from '../../components/MapStage'
 import { icons } from '../../components/mapIcons'
 import { Panel, Segmented } from '../../components/ui'
@@ -166,7 +166,7 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
   const fireView = showOpt && optimal ? optimal.fires[fireIdx] : fires?.[fireIdx]
 
   return (
-    <div className="flex min-h-full flex-col lg:h-full lg:flex-row">
+    <div className="fg-drill-workspace flex min-h-full flex-col lg:h-full lg:flex-row">
       {/* left: tools, or the score */}
       <aside className="w-full shrink-0 space-y-3 overflow-auto border-b border-line bg-panel p-3 lg:w-[300px] lg:border-b-0 lg:border-r">
         <button onClick={onExit} className="flex items-center gap-1 text-[12px] text-muted hover:text-ink"><ArrowLeft size={13} /> Tatbikat menüsü</button>
@@ -183,12 +183,12 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
                 const Icon = TOOL_ICON[id]
                 const on = tool === id
                 return (
-                  <button key={id} role="radio" aria-checked={on} onClick={() => { setTool(on ? null : id); setDraft([]) }} className={`w-full border px-2.5 py-2 text-left ${on ? 'border-forest bg-forest-dim/30' : 'border-line2 bg-bg hover:border-muted'}`}>
+                  <button key={id} role="radio" aria-checked={on} onClick={() => { setTool(on ? null : id); setDraft([]) }} className={`fg-tool-card ${on ? 'is-selected' : ''}`} style={{ ['--tool-color' as string]: T.color }}>
                     <div className="flex items-center gap-2">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={{ background: `${T.color}22`, color: T.color }}><Icon size={15} /></span>
+                      <span className="fg-tool-icon"><Icon size={16} /></span>
                       <div className="min-w-0 flex-1">
-                        <div className="text-[13px] font-semibold">{T.label}</div>
-                        <div className="text-[11px] text-muted">{UNIT[id]}</div>
+                        <div className="text-[12px] font-medium">{T.label}</div>
+                        <div className="mt-1 text-[10px] text-muted">{UNIT[id]}</div>
                       </div>
                     </div>
                   </button>
@@ -208,7 +208,7 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
                 <Segmented<'30' | '60' | '100'> label="Şerit genişliği" value={String(width) as '30' | '60' | '100'} onChange={(v) => setWidth(Number(v) as 30 | 60 | 100)} options={[{ value: '30', label: '30 m' }, { value: '60', label: '60 m' }, { value: '100', label: '100 m' }]} />
               </div>
             )}
-            <p className="text-[10.5px] leading-snug text-muted">{COST_NOTE}</p>
+            <details className="fg-setting-section"><summary>Maliyetler hakkında <ChevronDown size={12} /></summary><div className="fg-setting-content text-[10px] leading-relaxed text-muted">{COST_NOTE}</div></details>
           </>
         ) : verdict && (
           <>
@@ -221,17 +221,18 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
       </aside>
 
       {/* map */}
-      <div className="relative min-h-[460px] min-w-0 flex-1">
-        <div className="absolute left-14 right-3 top-2 z-[500] flex flex-wrap items-center gap-2">
+      <div className="flex min-h-[620px] min-w-0 flex-1 flex-col lg:min-h-0">
+        <div className="fg-drill-mapbar">
           <WeatherChips config={sc.config} />
           {phase === 'plan' && (
-            <div className="flex items-center gap-2 border border-line2 bg-bg/92 px-2 py-1 text-[12px]">
+            <div className="fg-budget-strip">
               <span>Bütçe</span>
               <div className="h-1.5 w-28 rounded-full bg-line"><div className={`h-full rounded-full ${total > BUDGET_TL ? 'bg-fire' : 'bg-forest'}`} style={{ width: `${Math.min(100, (total / BUDGET_TL) * 100)}%` }} /></div>
               <b className={total > BUDGET_TL ? 'text-fire' : ''}>{tlFmt(total)}</b><span className="text-muted">/ {tlFmt(BUDGET_TL)}</span>
             </div>
           )}
         </div>
+        <div className="fg-drill-map relative min-h-[420px] flex-1">
         {phase === 'plan' && tool && (TOOLS[tool].kind === 'line' || TOOLS[tool].kind === 'area') && (
           <div className="absolute bottom-12 left-1/2 z-[500] flex -translate-x-1/2 items-center gap-2 border border-line2 bg-bg/95 px-3 py-2 text-[12.5px]">
             <span>{TOOLS[tool].label}: {draft.length} nokta</span>
@@ -255,7 +256,7 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
           result={phase === 'result' && fireView ? fireView.without : null}
           resultB={phase === 'result' && fireView ? fireView.withPlan : null}
           step={phase === 'result' && fireView ? Math.max(fireView.without.steps, fireView.withPlan.steps) : 0}
-          mode={phase === 'result' ? 'diff' : 'fuel'}
+          mode={phase === 'result' ? 'diff' : 'none'}
           fitGrid
           fitKey={`${sc.seed}`}
           pick={phase === 'plan' && !!tool}
@@ -286,6 +287,7 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
             </CircleMarker>
           ))}
         </MapStage>
+        </div>
       </div>
 
       {/* right: the plan, or the comparison */}
@@ -315,7 +317,7 @@ export function PreventionExam({ onExit }: { onExit: () => void }) {
                 <div className="flex justify-between"><span className="text-muted">Doğaya dokunan alan</span><b>~{nature.toFixed(1)} ha</b></div>
               </div>
             </Panel>
-            <button onClick={simulate} disabled={phase === 'running'} className="flex w-full items-center justify-center gap-2 bg-fire px-3 py-2.5 text-[15px] font-semibold text-white hover:bg-fire/90 disabled:opacity-60">
+            <button onClick={simulate} disabled={phase === 'running'} className="fg-button fg-button--primary w-full">
               <Flame size={17} /> Planı bitir ve yangını başlat
             </button>
             <p className="text-[11px] leading-snug text-muted">Sistem bu havada en olası {sc.ignitions.length} noktadan (yoğun yakıt, yol ve köy yakınlığı) yangın başlatacak. İhbar {COSTS.ihbarDk}. dakikada gelir; gözetleme yangını görürse daha erken.</p>

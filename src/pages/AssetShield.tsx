@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import L from 'leaflet'
-import { Circle, CircleMarker, Marker, Polygon, Polyline, Popup, Rectangle, Tooltip } from 'react-leaflet'
+import { Circle, CircleMarker, Marker, Polygon, Polyline, Popup, Tooltip } from 'react-leaflet'
 import { AlertTriangle, Bot, Building2, Check, Cpu, Droplets, Flame, Loader2, MapPin, PenLine, Route, Shield, ShieldCheck, Siren, Thermometer, Trash2, Undo2, Wind, X } from 'lucide-react'
 import { MapStage, WindArrow } from '../components/MapStage'
 import { icons } from '../components/mapIcons'
 import { Panel } from '../components/ui'
 import { REGIONS, defaultConfig, regionById } from '../data/regions'
 import { getGrid } from '../sim/gridCache'
-import { cellOf, gridBounds } from '../sim/terrain'
+import { cellOf } from '../sim/terrain'
 import { compass, type LatLon } from '../sim/geo'
 import { SECTORS, type Sector } from '../sim/types'
 import { askAssetReport } from '../lib/commanderClient'
@@ -266,7 +266,6 @@ export function AssetShield() {
           </div>
         )}
         <MapStage grid={grid} mode={profile ? 'fuel' : 'none'} opacity={0.55} fitGrid fitKey={areaId} pick={drawing} onMapClick={onMapClick} wind={profile ? { config: { ...defaultConfig(region), ignition: profile.centroid }, minutes: 0 } : null}>
-          <Rectangle bounds={gridBounds(grid)} interactive={false} pathOptions={{ color: '#3fa564', weight: 1.5, dashArray: '6 6', fill: false }} />
           {region.settlements.map((st) => (
             <Marker key={st.id} position={st.pos} icon={icons.settlement}>
               <Tooltip direction="right" permanent offset={[8, 0]} className="fg-label">{st.name}</Tooltip>

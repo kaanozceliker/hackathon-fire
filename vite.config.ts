@@ -8,22 +8,22 @@ type Handler = (req: IncomingMessage, res: ServerResponse, next: () => void) => 
 /** Mounts the AI commander API (server/commander.ts) on the dev and preview servers. */
 function commanderApi(): Plugin {
   const handler: Handler = (req, res, next) => {
-    import('./server/commander').then(({ commanderHandler }) => commanderHandler(req, res, next)).catch(next)
+    import('./server/commander.ts').then(({ commanderHandler }) => commanderHandler(req, res, next)).catch(next)
   }
   const prevention: Handler = (req, res, next) => {
-    import('./server/commander').then(({ preventionHandler }) => preventionHandler(req, res, next)).catch(next)
+    import('./server/commander.ts').then(({ preventionHandler }) => preventionHandler(req, res, next)).catch(next)
   }
   const recovery: Handler = (req, res, next) => {
-    import('./server/commander').then(({ recoveryHandler }) => recoveryHandler(req, res, next)).catch(next)
+    import('./server/commander.ts').then(({ recoveryHandler }) => recoveryHandler(req, res, next)).catch(next)
   }
   const report: Handler = (req, res, next) => {
-    import('./server/commander').then(({ reportHandler }) => reportHandler(req, res, next)).catch(next)
+    import('./server/commander.ts').then(({ reportHandler }) => reportHandler(req, res, next)).catch(next)
   }
   const drill: Handler = (req, res, next) => {
-    import('./server/commander').then(({ drillHandler }) => drillHandler(req, res, next)).catch(next)
+    import('./server/commander.ts').then(({ drillHandler }) => drillHandler(req, res, next)).catch(next)
   }
   const asset: Handler = (req, res, next) => {
-    import('./server/commander').then(({ assetHandler }) => assetHandler(req, res, next)).catch(next)
+    import('./server/commander.ts').then(({ assetHandler }) => assetHandler(req, res, next)).catch(next)
   }
   return {
     name: 'forestguard-commander-api',

@@ -7,10 +7,10 @@ import type { Verdict } from '../../sim/drill'
 /** Weather of the drill day as compact chips. */
 export function WeatherChips({ config }: { config: SimConfig }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
-      <span className="flex items-center gap-1 border border-line2 bg-bg px-2 py-1"><Thermometer size={13} className="text-fire" /> {config.temperatureC} °C</span>
-      <span className="flex items-center gap-1 border border-line2 bg-bg px-2 py-1"><Droplets size={13} className="text-water" /> %{config.humidityPct} nem</span>
-      <span className="flex items-center gap-1.5 border border-line2 bg-bg px-2 py-1"><Wind size={13} /> {config.windSpeedKmh} km/sa <WindArrow fromDeg={config.windFromDeg} className="text-ink" /> {compass(config.windFromDeg)} yönünden</span>
+    <div className="fg-weather-chips">
+      <span><Thermometer size={13} className="text-fire" /> {config.temperatureC} °C</span>
+      <span><Droplets size={13} className="text-water" /> %{config.humidityPct} nem</span>
+      <span><Wind size={13} /> {config.windSpeedKmh} km/sa <WindArrow fromDeg={config.windFromDeg} className="text-ink" /> {compass(config.windFromDeg)}</span>
     </div>
   )
 }
@@ -20,7 +20,7 @@ const GRADE_COLOR: Record<string, string> = { A: '#3fa564', B: '#8fc46a', C: '#e
 /** Big score with the letter grade and the score parts as bars. */
 export function ScoreCard({ score, grade, parts, title }: { score: number; grade: string; parts: Verdict['parts']; title: string }) {
   return (
-    <section className="border border-line bg-panel p-3">
+    <section className="fg-panel p-4">
       <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-muted">{title}</div>
       <div className="mt-2 flex items-center gap-4">
         <div className="flex h-[76px] w-[76px] shrink-0 flex-col items-center justify-center rounded-full border-[5px]" style={{ borderColor: GRADE_COLOR[grade] ?? 'var(--color-muted)' }}>

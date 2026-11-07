@@ -73,7 +73,7 @@ export class SmokeLayer extends L.Layer {
       img.data[k * 4] = 210 - 100 * t
       img.data[k * 4 + 1] = 205 - 110 * t
       img.data[k * 4 + 2] = 198 - 112 * t
-      img.data[k * 4 + 3] = Math.round(255 * Math.min(0.88, 0.12 + 0.8 * t))
+      img.data[k * 4 + 3] = Math.round(255 * Math.min(0.76, 0.1 + 0.66 * t))
     }
     ctx.putImageData(img, 0, 0)
   }

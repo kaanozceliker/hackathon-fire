@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
-import { Layers } from 'lucide-react'
+import { MapContainer, Pane, Rectangle, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import { ChevronDown, Focus, Layers, ListFilter } from 'lucide-react'
 import type { Grid, ResponseRecord, SimConfig, SimResult } from '../sim/types'
 import { WindParticleLayer } from './WindParticleLayer'
 import { speciesById } from '../data/vegetation'
@@ -16,7 +16,7 @@ import { useTheme } from '../state/theme'
 import { gridBounds } from '../sim/terrain'
 import { compass } from '../sim/geo'
 
-// Dark base map from MapTiler (the same key as the 3D view); CARTO only when no key is set
+// MapTiler when configured; standard OSM tiles otherwise (no API key required).
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY as string | undefined
 const BASEMAPS = {
   dark: MAPTILER_KEY
@@ -27,8 +27,8 @@ const BASEMAPS = {
       }
     : {
         label: 'Koyu',
-        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        attr: '&copy; OpenStreetMap contributors &copy; CARTO',
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
   light: MAPTILER_KEY
     ? {
@@ -38,8 +38,8 @@ const BASEMAPS = {
       }
     : {
         label: 'Harita',
-        url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        attr: '&copy; OpenStreetMap contributors &copy; CARTO',
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
   satellite: {
     label: 'Uydu',
@@ -52,6 +52,23 @@ const KIND_LABEL = ['Su', 'Yerleşim', 'Seyrek / tarım', 'Maki çalılığı', 
 
 function FitTo({ bounds, center, zoom, fitKey }: { bounds?: L.LatLngBoundsExpression; center?: [number, number]; zoom?: number; fitKey: string }) {
   const map = useMap()
+  const latestBounds = useRef(bounds)
+  latestBounds.current = bounds
+  useEffect(() => {
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        map.invalidateSize({ pan: false })
+        if (latestBounds.current) map.fitBounds(latestBounds.current, { padding: [24, 24], animate: false })
+      })
+    })
+    observer.observe(map.getContainer())
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [map])
   useEffect(() => {
     map.invalidateSize()
     // A hidden or zero-size container makes Leaflet compute NaN coordinates and throw; skip until it has a size.
@@ -236,16 +253,22 @@ export function MapStage(p: MapStageProps) {
   // the street map follows the app theme; satellite stays satellite
   const [theme] = useTheme()
   const [pickedBase, setBase] = useState<'map' | 'satellite'>('map')
+  const [resetView, setResetView] = useState(0)
   const base: keyof typeof BASEMAPS = pickedBase === 'satellite' ? 'satellite' : theme === 'light' ? 'light' : 'dark'
   const [hover, setHover] = useState<CellInfo | null>(null)
   const grid = p.grid ?? null
+  useEffect(() => setHover(null), [grid, p.result, p.mode])
   const bounds = grid && p.fitGrid ? gridBounds(grid) : undefined
   return (
-    <div className={`relative h-full w-full ${p.className ?? ''}`}>
+    <div className={`fg-map-stage relative h-full w-full ${p.className ?? ''}`}>
       <MapContainer center={p.center ?? [38.5, 32]} zoom={p.zoom ?? 6} minZoom={p.minZoom ?? 5} zoomControl={!p.compact} className="h-full w-full" preferCanvas>
-        <TileLayer key={base} url={BASEMAPS[base].url} attribution={`${BASEMAPS[base].attr} · Arazi örtüsü &copy; ESA WorldCover (CC BY 4.0) · Yükselti &copy; Copernicus DEM · Yollar ve yerleşimler &copy; OpenStreetMap (ODbL) · Hava &copy; Open-Meteo (CC BY 4.0)`} maxZoom={17} />
-        <FitTo bounds={bounds} center={p.center} zoom={p.zoom} fitKey={p.fitKey} />
+        <TileLayer key={base} className={!MAPTILER_KEY && base !== 'satellite' ? 'fg-osm-tiles' : undefined} url={BASEMAPS[base].url} attribution={`${BASEMAPS[base].attr} · Arazi örtüsü &copy; ESA WorldCover (CC BY 4.0) · Yükselti &copy; Copernicus DEM · Yollar ve yerleşimler &copy; OpenStreetMap (ODbL) · Hava &copy; Open-Meteo (CC BY 4.0)`} maxZoom={17} />
+        <FitTo bounds={bounds} center={p.center} zoom={p.zoom} fitKey={`${p.fitKey}-${resetView}`} />
         <Clicks onClick={p.onMapClick} pick={!!p.pick} />
+        {bounds && <Pane name="study-boundary" style={{ zIndex: 470, pointerEvents: 'none' }}>
+          <Rectangle bounds={bounds} interactive={false} pathOptions={{ color: theme === 'light' ? '#ffffff' : '#0b151b', weight: 5, opacity: 0.8, fill: false }} />
+          <Rectangle bounds={bounds} interactive={false} pathOptions={{ className: 'fg-study-boundary', color: theme === 'light' ? '#2e4851' : '#e0e9ed', weight: 2.2, opacity: 0.92, dashArray: '10 6', fill: false }} />
+        </Pane>}
         {grid && (
           <FireLayerBridge
             grid={grid}
@@ -270,22 +293,23 @@ export function MapStage(p: MapStageProps) {
         {p.children}
       </MapContainer>
 
-      <div className="pointer-events-none absolute right-2 top-2 z-[500] flex flex-col items-end gap-2">
-        <div className="pointer-events-auto flex border border-line2 bg-bg/90 text-[12px]">
+      <div className="fg-map-controls pointer-events-none absolute right-3 top-3 z-[500] flex flex-col items-end gap-2">
+        <div className="fg-basemap-switch pointer-events-auto flex">
           <span className="flex items-center px-1.5 text-muted"><Layers size={13} /></span>
           {([['map', theme === 'light' ? 'Harita' : 'Koyu'], ['satellite', 'Uydu']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setBase(k)} aria-pressed={pickedBase === k} className={`px-2 py-1 font-medium ${pickedBase === k ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>
               {label}
             </button>
           ))}
+          <button onClick={() => setResetView((value) => value + 1)} aria-label="Çalışma alanını ortala" title="Çalışma alanını ortala" className="ml-1 border-l border-line text-muted hover:text-ink"><Focus size={13} /></button>
         </div>
         {p.controls && <div className="pointer-events-auto">{p.controls}</div>}
       </div>
 
-      {p.legend && <div className="pointer-events-none absolute bottom-2 left-2 z-[500]"><div className="pointer-events-auto">{p.legend}</div></div>}
+      {p.legend && <details className="fg-map-legend"><summary><ListFilter size={13} /> Lejant <ChevronDown size={11} /></summary><div>{p.legend}</div></details>}
 
       {p.hud && grid && (
-        <div className="pointer-events-none absolute bottom-2 right-2 z-[500] min-w-[170px] border border-line2 bg-bg/90 px-2.5 py-1.5 text-[12px]">
+        <div className="fg-map-hud">
           {hover ? (
             <>
               <div className="font-semibold">{KIND_LABEL[hover.kind]}</div>
@@ -305,7 +329,7 @@ export function MapStage(p: MapStageProps) {
               {hover.igniteMin !== null && <div className="text-amber">Yanma başlangıcı: T+{Math.floor(hover.igniteMin / 60)}sa {String(hover.igniteMin % 60).padStart(2, '0')}dk</div>}
             </>
           ) : (
-            <div className="text-muted">Arazi, yakıt, yanma zamanı ve duman için imleci haritada gezdirin</div>
+            <div className="text-muted">Hücre ayrıntıları için haritada gezinin</div>
           )}
         </div>
       )}

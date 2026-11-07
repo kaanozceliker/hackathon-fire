@@ -1,8 +1,9 @@
+import assert from 'node:assert/strict'
 import { REGIONS, defaultConfig } from '../src/data/regions'
 import { buildGrid } from '../src/sim/terrain'
 import { runSimulation } from '../src/sim/engine'
 
-for (const r of REGIONS.slice(0, 1)) {
+for (const r of REGIONS) {
   const grid = buildGrid(r.id, r.center, r.seed, r.settlements)
   const kinds = [0, 0, 0, 0, 0]
   for (const k of grid.kind) kinds[k]++
@@ -19,6 +20,24 @@ for (const r of REGIONS.slice(0, 1)) {
     const a = runSimulation(grid, cfg, r.settlements)
     const b = runSimulation(grid, cfg, r.settlements)
     const same = a.ignitionStep.every((v, i) => v === b.ignitionStep[i])
+    assert(same, `${r.id}/${name}: ignition must be deterministic`)
+    assert.deepEqual(a.burnoutStep, b.burnoutStep, `${r.id}/${name}: burnout must be deterministic`)
+    assert.deepEqual(a.series, b.series, `${r.id}/${name}: statistics must be deterministic`)
+    assert.deepEqual(a.impacts, b.impacts, `${r.id}/${name}: settlement impacts must be deterministic`)
+    assert.equal(a.series.length, a.steps + 1)
+    for (let i = 0; i < a.ignitionStep.length; i++) {
+      if (grid.kind[i] === 0) assert.equal(a.ignitionStep[i], -1, `${r.id}/${name}: water cannot burn`)
+      if (a.ignitionStep[i] >= 0) assert(a.burnoutStep[i] >= a.ignitionStep[i], 'Burnout cannot precede ignition')
+    }
+    for (let i = 0; i < a.series.length; i++) {
+      const stat = a.series[i]
+      assert.equal(stat.minutes, i * a.stepMin)
+      for (const value of [stat.affectedHa, stat.burningHa, stat.forestHa, stat.perimeterKm, stat.rosMh, stat.maxRadiusKm]) assert(Number.isFinite(value) && value >= 0)
+      assert(stat.burningHa <= stat.affectedHa + 1e-6)
+      assert(stat.forestHa <= stat.affectedHa + 1e-6)
+      assert(Math.abs(stat.affectedHa - stat.pineHa - stat.maquisHa - stat.sparseHa) < 1e-6, 'Land-cover areas must add up')
+      if (i) assert(stat.affectedHa >= a.series[i - 1].affectedHa, 'Affected area cannot decrease')
+    }
     const f = a.series[a.series.length - 1]
     console.log(name, 'ms', Math.round(performance.now() - t0), 'deterministic', same,
       'ha@3h', Math.round(a.series[18].affectedHa), 'ha@6h', Math.round(a.series[36].affectedHa), 'ha@12h', Math.round(f.affectedHa),
@@ -138,15 +157,17 @@ import type { WeatherSeries } from '../src/sim/types'
   if (diffDeg(bShift, 225) > 60 || diffDeg(bShift, bSteady) < 45) fails.push('rüzgar dönüşü yayılım yönünü beklenen tarafa çevirmedi')
   if (!report.includes('döndü')) fails.push('rapor rüzgar dönüşünü yazmıyor')
 
-  try {
-    const m = REGIONS[0]
-    const gm = getGrid(m.id)
-    const real = await fetchWeather(gm, '2021-07-28T12:00', 12)
-    const w = runSimulation(gm, { ...defaultConfig(m), durationH: 12, weather: real }, m.settlements)
-    console.log(`gate faz2: Open-Meteo arşivi 2021-07-28 Marmaris: rüzgar ${Math.min(...real.windSpeedKmh[4]).toFixed(0)}–${Math.max(...real.windSpeedKmh[4]).toFixed(0)} km/sa, 12 sa sonunda ${Math.round(w.series.at(-1)!.affectedHa)} ha`)
-  } catch (e) {
-    console.log(`gate faz2: Open-Meteo erişilemedi, gerçek veri denemesi atlandı (${(e as Error).message})`)
-  }
+  if (process.argv.includes('--live-weather')) {
+    try {
+      const m = REGIONS[0]
+      const gm = getGrid(m.id)
+      const real = await fetchWeather(gm, '2021-07-28T12:00', 12)
+      const w = runSimulation(gm, { ...defaultConfig(m), durationH: 12, weather: real }, m.settlements)
+      console.log(`gate faz2: Open-Meteo arşivi 2021-07-28 Marmaris: rüzgar ${Math.min(...real.windSpeedKmh[4]).toFixed(0)}–${Math.max(...real.windSpeedKmh[4]).toFixed(0)} km/sa, 12 sa sonunda ${Math.round(w.series.at(-1)!.affectedHa)} ha`)
+    } catch (e) {
+      fails.push(`Open-Meteo canlı kontrolü başarısız: ${(e as Error).message}`)
+    }
+  } else console.log('Open-Meteo canlı kontrolü isteğe bağlı: npm run sim:check:live')
   if (fails.length) {
     console.log('FAZ 2 KAPISI GEÇİLMEDİ:\n  ' + fails.join('\n  '))
     process.exitCode = 1
@@ -205,6 +226,15 @@ import { ResponseRun, ruleCommander } from '../src/sim/response'
   const soft = play('mugla', { windSpeedKmh: 15, humidityPct: 45, temperatureC: 28 }, 30)
   const h = hard.response!
   const s = soft.response!
+  assert.equal(Math.round(hard.series.at(-1)!.affectedHa), 691, 'Resource UI metadata must preserve the existing response result')
+  assert.equal(Math.round(h.baseline.affectedHa), 5026)
+  assert.equal(h.decisions.length, 12)
+  assert(h.tracks.some((track) => track.moves.some((move) => move.purpose === 'return')))
+  assert(h.tracks.some((track) => track.moves.some((move) => move.purpose === 'refill')))
+  for (const track of h.tracks) {
+    assert(track.base && Number.isFinite(track.availableFromStep))
+    for (const move of track.moves) assert(move.purpose && move.toStep >= move.fromStep)
+  }
   const saved = 1 - hard.series.at(-1)!.affectedHa / h.baseline.affectedHa
   console.log(`gate komuta: aşırı koşul ${Math.round(hard.series.at(-1)!.affectedHa)} ha (müdahalesiz ${Math.round(h.baseline.affectedHa)}, %${Math.round(saved * 100)} kurtarıldı), ${h.decisions.length} karar; ılımlı koşul ${soft.series.at(-1)!.affectedHa.toFixed(0)} ha, söndü ${s.extinguishedStep === null ? 'hayır' : `T+${(s.extinguishedStep / 6).toFixed(1)} sa`}`)
   if (saved < 0.2) fails.push('erken müdahale yanan alanı %20 bile azaltmıyor')

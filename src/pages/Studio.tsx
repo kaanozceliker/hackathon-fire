@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import L from 'leaflet'
-import { Marker, Polyline, Rectangle, Tooltip } from 'react-leaflet'
+import { Marker, Polyline, Tooltip } from 'react-leaflet'
 import { Area, AreaChart, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
-import { CloudDownload, Crosshair, Flame, Loader2, RotateCcw } from 'lucide-react'
+import { Activity, ChevronDown, CloudDownload, CloudFog, Crosshair, Flame, Info, Layers3, Loader2, MapPinned, PanelRightClose, PanelRightOpen, RotateCcw, Settings2, ShieldCheck, Trees, Wind } from 'lucide-react'
 import { MapStage, WindArrow } from '../components/MapStage'
 import { Timeline } from '../components/Timeline'
 import { Legend, Panel, Segmented, SliderField, Stat, fmtHa } from '../components/ui'
@@ -16,13 +16,14 @@ import { fuelOf } from '../sim/engine'
 import { ARRIVAL_LEGEND, type FireMode } from '../components/FireCanvasLayer'
 import { REGIONS, regionById, defaultConfig } from '../data/regions'
 import { getGrid } from '../sim/gridCache'
-import { cellCenter, cellOf, gridBounds } from '../sim/terrain'
+import { cellCenter, cellOf } from '../sim/terrain'
 import { compass } from '../sim/geo'
 import type { Intensity, TerrainType } from '../sim/types'
 import { useStore } from '../state/store'
 import { useState } from 'react'
 import { currentLocalHour, fetchWeather, weatherAt, weatherSeries, withStartValues } from '../sim/weather'
 import { aqiOf, computeSmoke, exposures } from '../sim/smoke'
+import { EventFeed, simulationEvents } from '../components/SimulationEvents'
 
 const fmtT = (t: number) => (t >= 1000 ? `${(t / 1000).toFixed(t >= 100000 ? 0 : 1)} bin` : t >= 10 ? Math.round(t).toLocaleString('en-US') : t.toFixed(1))
 
@@ -48,10 +49,29 @@ export function Studio() {
   const region = regionById(draft.areaId)
   const grid = getGrid(draft.areaId)
   const res = active.result
+  const playbackClock = useRef(step * res.stepMin)
+  useEffect(() => {
+    const target = step * res.stepMin
+    const start = playbackClock.current
+    if (!s.playing || target < start || target - start > res.stepMin * 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      playbackClock.current = target
+      return
+    }
+    let frame = 0
+    const began = performance.now()
+    const duration = 1000 / (5 * s.speed)
+    const animate = (now: number) => {
+      const share = Math.min(1, (now - began) / duration)
+      playbackClock.current = start + (target - start) * share
+      if (share < 1) frame = requestAnimationFrame(animate)
+    }
+    frame = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(frame)
+  }, [res, step, s.playing, s.speed])
   const sameArea = res.config.areaId === draft.areaId
   // the shown run only fits the map while the ignition point is where it started; after a move the map shows the land
   const matches = sameArea && res.config.ignition[0] === draft.ignition[0] && res.config.ignition[1] === draft.ignition[1]
-  const shownMode: FireMode = matches ? mode : 'fuel'
+  const shownMode: FireMode = matches ? mode : mode === 'fuel' ? 'fuel' : 'none'
   const stat = res.series[Math.min(step, res.series.length - 1)]
   const [weatherMode, setWeatherMode] = useState<'fixed' | 'live'>(draft.weather ? 'live' : 'fixed')
   const [startIso, setStartIso] = useState(() => draft.weather?.startIso ?? currentLocalHour())
@@ -59,6 +79,17 @@ export function Studio() {
   const [showWind, setShowWind] = useState(true)
   const [showSmoke, setShowSmoke] = useState(true)
   const [showTrees, setShowTrees] = useState(false)
+  const [insightsOpen, setInsightsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(() => window.innerWidth >= 1024)
+  const [picking, setPicking] = useState(false)
+  useEffect(() => {
+    if (!picking) return
+    const cancel = (event: KeyboardEvent) => { if (event.key === 'Escape') setPicking(false) }
+    window.addEventListener('keydown', cancel)
+    return () => window.removeEventListener('keydown', cancel)
+  }, [picking])
+  const events = useMemo(() => matches ? simulationEvents(res, step) : [], [res, step, matches])
+  const seekEvent = (next: number) => { s.setPlaying(false); s.setStep(next) }
   const around = useMemo(() => surroundings(grid, draft.ignition, simYear(draft)), [grid, draft])
   const [showExisting, setShowExisting] = useState(false)
   // "Arazi ve yakıt" from data: slope from the DEM, fuel dryness from the latest Sentinel-2 pass (null = set by hand)
@@ -115,6 +146,7 @@ export function Studio() {
 
 
   const onMapClick = (lat: number, lon: number) => {
+    if (!picking) return
     const c = cellOf(grid, lat, lon)
     if (c < 0) return notify(`Tutuşma noktası seçili orman alanının (${region.name}) içinde olmalı.`)
     if (grid.kind[c] === 0) {
@@ -132,10 +164,13 @@ export function Studio() {
         }
       if (best < 0) return notify('Bu nokta açık su. Karada bir nokta seçin.')
       notify('Tıkladığınız yer su; en yakın kara noktası seçildi.')
-      return patchDraft({ ignition: cellCenter(grid, best) })
+      patchDraft({ ignition: cellCenter(grid, best) })
+      setPicking(false)
+      return
     }
     if (fuelOf(grid, c, 1) === 0) notify('Bu nokta neredeyse çıplak toprak: yangın burada tutunamayabilir.')
     patchDraft({ ignition: [lat, lon] })
+    setPicking(false)
   }
 
   const chartData = useMemo(() => res.series.map((p) => ({ h: p.minutes / 60, ha: Math.round(p.affectedHa), burning: Math.round(p.burningHa) })), [res])
@@ -146,8 +181,8 @@ export function Studio() {
   const legend =
     shownMode === 'fuel' ? (
       <Legend title="Arazi örtüsü ve yakıt" items={[
-        { color: 'rgba(30,130,70,.7)', label: 'Çam ormanı (yoğun yakıt)' },
-        { color: 'rgba(86,170,95,.5)', label: 'Maki çalılığı' },
+        { color: 'rgba(122,146,155,.7)', label: 'Çam ormanı (yoğun yakıt)' },
+        { color: 'rgba(169,156,133,.5)', label: 'Maki çalılığı' },
         { color: 'rgba(190,180,90,.4)', label: 'Seyrek / tarım' },
         { color: 'rgba(160,170,175,.5)', label: 'Yerleşim' },
         { color: 'rgba(40,90,140,.6)', label: 'Su' },
@@ -158,8 +193,9 @@ export function Studio() {
       <Legend title="Yangın durumu" items={[
         { color: '#ffd24a', label: 'Aktif yanıyor, yeni' },
         { color: '#e5502a', label: 'Yanıyor, son evre' },
-        { color: '#46181a', label: 'Yanıp söndü' },
-        { color: '#ffe9b0', label: 'Yangın çevresi', kind: 'line' },
+        { color: '#3a302e', label: 'Yanmış alan' },
+        { color: '#ead1ad', label: 'Toplam yangın çevresi', kind: 'line' },
+        { color: '#ffcd71', label: 'Aktif yanma sınırı', kind: 'line' },
         { color: '#ffd24a', label: 'Yayılma yönü', kind: 'dash' },
         { color: '#ffa53a', label: 'Olası kor düşme noktası', kind: 'dot' },
         { color: '#fff1a6', label: 'Yeni sıçrama (kor)', kind: 'dot' },
@@ -167,38 +203,41 @@ export function Studio() {
     )
 
   return (
-    <div className="flex min-h-full flex-col lg:h-full lg:flex-row">
+    <div className="fg-workbench">
       {/* configuration */}
-      <aside className="w-full shrink-0 space-y-3 overflow-auto border-b border-line bg-panel p-3 lg:w-[300px] lg:border-b-0 lg:border-r">
+      <aside className={`fg-control-rail ${settingsOpen ? '' : 'is-collapsed'}`}>
+        <div className="fg-rail-heading"><div><p className="fg-eyebrow">Senaryo kurulumu</p><h2>Ayarları belirleyin</h2></div><button className="fg-icon-button" onClick={() => setSettingsOpen(!settingsOpen)} aria-expanded={settingsOpen} aria-label={settingsOpen ? 'Senaryo ayarlarını gizle' : 'Senaryo ayarlarını göster'}><Settings2 size={15} /></button></div>
+        {settingsOpen && <div className="fg-control-scroll space-y-4">
         <div>
-          <label htmlFor="area" className="mb-1 block text-[12px] text-muted">Orman alanı</label>
-          <select id="area" value={draft.areaId} onChange={(e) => setDraftArea(e.target.value)} className="w-full border border-line2 bg-bg px-2 py-1.5 text-[14px]">
+          <label htmlFor="area" className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted"><MapPinned size={13} /> Çalışma bölgesi</label>
+          <select id="area" value={draft.areaId} onChange={(e) => { setDraftArea(e.target.value); setPicking(false) }} className="w-full border border-line2 bg-bg px-2.5 py-2.5 text-[12px]">
             {REGIONS.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         </div>
 
-        <div className="border border-line2 bg-bg p-2.5">
+        <div className="fg-ignition-card">
           <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Crosshair size={14} className="text-fire" /> Tutuşma noktası</span>
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold"><Crosshair size={14} className="text-orange" /> Tutuşma noktası</span>
             <button onClick={() => patchDraft({ ignition: defaultConfig(region).ignition })} className="flex items-center gap-1 text-[12px] text-muted hover:text-ink"><RotateCcw size={12} /> Sıfırla</button>
           </div>
-          <div className="mt-1 text-[13px]">{draft.ignition[0].toFixed(4)}°K, {draft.ignition[1].toFixed(4)}°D</div>
-          <div className="text-[12px] text-muted">Taşımak için haritada kesikli alanın içinde herhangi bir yere tıklayın.</div>
+          <div className="fg-ignition-coords">{draft.ignition[0].toFixed(4)}°K <span className="text-line2">/</span> {draft.ignition[1].toFixed(4)}°D</div>
+          <div className="text-[10px] leading-relaxed text-muted">Başlangıcı belirleyin; yayılımı seçtiğiniz koşullarda inceleyin.</div>
+          <button className={`fg-button mt-3 w-full ${picking ? 'border-orange text-orange' : ''}`} aria-pressed={picking} onClick={() => setPicking(!picking)}><Crosshair size={13} />{picking ? 'Nokta seçimini iptal et' : 'Noktayı haritada seç'}</button>
         </div>
 
-        <SurroundingsPanel s={around} cellM={grid.cellM} showTrees={showTrees} setShowTrees={setShowTrees} />
-
-        <div className="space-y-2.5">
+        <div className="space-y-3 rounded-lg border border-line p-3">
           <div>
-            <div className="mb-1 text-[12px] text-muted">Başlangıç yangın şiddeti</div>
+            <div className="mb-2 text-[11px] text-muted">Başlangıç yangın şiddeti</div>
             <Segmented<Intensity> label="Başlangıç yangın şiddeti" value={draft.intensity} onChange={(v) => patchDraft({ intensity: v })} options={[{ value: 'low', label: 'Düşük' }, { value: 'medium', label: 'Orta' }, { value: 'high', label: 'Yüksek' }]} />
           </div>
           <SliderField label="Simülasyon süresi" value={draft.durationH} min={1} max={72} unit="sa" onChange={(v) => patchDraft(draft.weather && draft.weather.windSpeedKmh[0].length < v + 1 ? { durationH: v, weather: undefined } : { durationH: v })} hint="1 ile 72 saat arası, 10 dakikalık adımlarla" />
         </div>
 
-        <Panel title="Hava durumu" action={<span className="text-[11px] text-muted">{draft.weather ? WEATHER_SOURCE[draft.weather.source] : 'Örnek girdiler'}</span>}>
+        <details className="fg-setting-section" open>
+          <summary><span className="flex items-center gap-2"><Wind size={14} className="text-water" /> Hava koşulları</span><ChevronDown size={13} /></summary>
+          <div className="fg-setting-content"><Panel>
           <div className="space-y-2.5">
-            <Segmented<'fixed' | 'live'> label="Hava kaynağı" value={weatherMode} onChange={(v) => { setWeatherMode(v); if (v === 'fixed' && draft.weather) patchDraft({ weather: undefined }) }} options={[{ value: 'fixed', label: 'Sabit' }, { value: 'live', label: 'Open-Meteo (saatlik)' }]} />
+            <Segmented<'fixed' | 'live'> label="Hava kaynağı" value={weatherMode} onChange={(v) => { setWeatherMode(v); if (v === 'fixed' && draft.weather) patchDraft({ weather: undefined }) }} options={[{ value: 'fixed', label: 'Sabit' }, { value: 'live', label: 'Open-Meteo' }]} />
             {weatherMode === 'live' ? (
               <div className="space-y-2 border border-line2 bg-bg p-2.5">
                 <label className="block text-[12px] text-muted">
@@ -233,10 +272,11 @@ export function Studio() {
               <SliderField label="Yağış" value={draft.precipMmH} min={0} max={10} step={0.5} unit="mm/sa" onChange={(v) => patchDraft({ precipMmH: v })} />
             </fieldset>
           </div>
-        </Panel>
+        </Panel></div></details>
 
-        <Panel title="Arazi ve yakıt" action={<Segmented<'auto' | 'manual'> label="Arazi ve yakıt kaynağı" value={landMode} onChange={(v) => { setLandMode(v); if (v === 'manual') patchDraft({ landAuto: null }) }} options={[{ value: 'auto', label: 'Otomatik' }, { value: 'manual', label: 'Elle' }]} />}>
+        <details className="fg-setting-section"><summary><span className="flex items-center gap-2"><Trees size={14} className="text-forest" /> Arazi ve yakıt</span><ChevronDown size={13} /></summary><div className="fg-setting-content"><Panel>
           <div className="space-y-2.5">
+            <Segmented<'auto' | 'manual'> label="Arazi ve yakıt kaynağı" value={landMode} onChange={(v) => { setLandMode(v); if (v === 'manual') patchDraft({ landAuto: null }) }} options={[{ value: 'auto', label: 'Otomatik' }, { value: 'manual', label: 'Elle' }]} />
             {landMode === 'auto' ? (
               <LandAutoInfo terrain={draft.terrain} fuelLoad={draft.fuelLoad} auto={draft.landAuto ?? null} busy={landBusy} originVeg={originVeg} />
             ) : (
@@ -254,49 +294,56 @@ export function Studio() {
               <span>Mevcut önlemleri hesaba kat<span className="block text-[11px] text-muted">Yollar ve emniyet şeritleri yakıt kesintisi, son yıllardaki yanık alanlar az yakıt, kuleler erken tespit, havuzlar su noktası olur.</span></span>
             </label>
           </div>
-        </Panel>
-
-        <button onClick={startSimulation} disabled={progress !== null} className="flex w-full items-center justify-center gap-2 bg-fire px-3 py-2.5 text-[15px] font-semibold text-white hover:bg-fire/90 disabled:opacity-60">
+        </Panel></div></details>
+        <details className="fg-setting-section"><summary><span className="flex items-center gap-2"><ShieldCheck size={14} className="text-forest" /> Başlangıç çevresini tanıyın</span><ChevronDown size={13} /></summary><div className="fg-setting-content"><SurroundingsPanel s={around} cellM={grid.cellM} showTrees={showTrees} setShowTrees={setShowTrees} /></div></details>
+        </div>}
+        <div className="fg-control-footer">
+        <button onClick={startSimulation} disabled={progress !== null} aria-label={progress !== null ? 'Hesaplanıyor' : 'Simülasyonu başlat'} className="fg-button fg-button--primary">
           {progress !== null ? <Loader2 size={17} className="animate-spin" /> : <Flame size={17} />}
-          {progress !== null ? 'Hesaplanıyor…' : 'Simülasyonu başlat'}
+          <span className="fg-run-label">{progress !== null ? 'Hesaplanıyor…' : 'Simülasyonu başlat'}</span>
         </button>
-        <p className="text-[11px] leading-snug text-muted">Sonuçlar temsili bir hücresel otomat simülasyonudur; doğrulanmış bir orman yangını tahmini veya operasyonel yönlendirme değildir.</p>
+        <p>Temsili model · Planlama ve eğitim amaçlı</p>
+        </div>
       </aside>
 
       {/* map */}
-      <div className="flex min-h-[560px] min-w-0 flex-1 flex-col lg:min-h-0">
-      <div className="relative min-h-[440px] flex-1">
+      <div className="fg-scene">
+        <div className="fg-scene-heading">
+          <div><h2>{region.name}</h2><p>{matches ? active.name : 'Yeni senaryo taslağı'} <span className="mx-1 opacity-40">·</span> {draft.durationH} saat / {grid.cellM} m çözünürlük {matches && dirty && <span className="fg-draft-pill" title="Harita kayıtlı senaryoyu gösteriyor. Yeni ayarları uygulamak için simülasyonu başlatın.">Ayarlar değişti</span>}</p></div>
+          <div className="fg-scene-heading-actions"><button className="fg-button" aria-pressed={insightsOpen} onClick={() => setInsightsOpen(!insightsOpen)}>{insightsOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />} {insightsOpen ? 'Analizi gizle' : 'Analiz ve olaylar'}</button></div>
+        </div>
+        <div className="fg-scene-metrics">
+          <Stat label="Etkilenen alan" value={matches ? fmtHa(stat.affectedHa) : '—'} unit="ha" tone="amber" />
+          <Stat label="Aktif yanma" value={matches ? fmtHa(stat.burningHa) : '—'} unit="ha" tone="fire" />
+          <Stat label="Cephe hızı" value={matches ? Math.round(stat.rosMh).toLocaleString('tr-TR') : '—'} unit="m/sa" />
+          <Stat label="Ulaşılan yerleşim" value={matches ? res.impacts.filter((impact) => impact.arrivalMin !== null && impact.arrivalMin <= stat.minutes).length : '—'} unit={matches ? `/ ${res.impacts.length}` : ''} tone="forest" />
+        </div>
+        <div className="fg-map-toolbar">
+          <div className="fg-segmented" role="radiogroup" aria-label="Harita katmanı">{([['fire', 'Yayılım'], ['arrival', 'Varış zamanı'], ['fuel', 'Arazi']] as const).map(([value, label]) => <button key={value} role="radio" aria-checked={shownMode === value} disabled={!matches && value !== 'fuel'} onClick={() => setMode(value)} className={shownMode === value ? 'is-selected' : ''}>{label}</button>)}</div>
+          <div className="flex items-center gap-3"><span className="fg-wind-reading"><WindArrow fromDeg={matches ? now.windFromDeg : draft.windFromDeg} />{Math.round(matches ? now.windSpeedKmh : draft.windSpeedKmh)} km/sa {compass(matches ? now.windFromDeg : draft.windFromDeg)}</span><details className="fg-layer-menu"><summary><Layers3 size={13} /> Katmanlar <ChevronDown size={11} /></summary><div>
+            <label><input type="checkbox" checked={showWind} onChange={(e) => setShowWind(e.target.checked)} /><Wind size={14} /> Rüzgar akışı</label>
+            <label><input type="checkbox" checked={showSmoke} disabled={!matches} onChange={(e) => setShowSmoke(e.target.checked)} /><CloudFog size={14} /> Duman yayılımı</label>
+            <label><input type="checkbox" checked={showTrees} onChange={(e) => setShowTrees(e.target.checked)} /><Trees size={14} /> Ağaç örtüsü</label>
+            <label><input type="checkbox" checked={showExisting} onChange={(e) => setShowExisting(e.target.checked)} /><ShieldCheck size={14} /> Koruma altyapısı</label>
+          </div></details></div>
+        </div>
+        {picking ? <div className="fg-scene-notice"><Crosshair size={13} className="shrink-0" />Kesikli çalışma alanında bir başlangıç noktası seçin. Vazgeçmek için Esc tuşuna basın.</div> : !matches && progress === null && <div className="fg-scene-notice"><Info size={13} className="shrink-0" />Yeni bölge veya tutuşma noktası seçildi. Yayılımı görmek için simülasyonu başlatın.</div>}
+      <div className="fg-scene-map">
         <MapStage
           grid={grid}
           result={matches ? res : null}
           step={step}
+          clockRef={playbackClock}
           mode={shownMode}
           fitGrid
           fitKey={draft.areaId}
-          pick
+          pick={picking}
           hud
           onMapClick={onMapClick}
           smoke={matches && showSmoke ? { result: res, step } : null}
           wind={showWind ? { config: matches ? res.config : draft, minutes: matches ? stat.minutes : 0 } : null}
           legend={showExisting ? <div className="space-y-2">{legend}<Legend title="Mevcut önlemler" items={EXISTING_LEGEND} /></div> : matches && showSmoke ? <div className="space-y-2">{legend}<Legend title="Duman, yer seviyesi PM2.5" items={[{ color: 'rgba(200,195,188,.45)', label: 'Pus, 10–35 µg/m³' }, { color: 'rgba(160,150,140,.7)', label: 'Yoğun, 55–225 µg/m³' }, { color: 'rgba(110,95,86,.88)', label: 'Çok yoğun, 225+ µg/m³' }]} /></div> : legend}
-          controls={
-            <div className="space-y-2">
-              <div className="flex border border-line2 bg-bg/90 text-[12px]" role="radiogroup" aria-label="Harita katmanı">
-                {([['fire', 'Yangın yayılımı'], ['arrival', 'Varış süresi'], ['fuel', 'Yakıt']] as const).map(([k, l]) => (
-                  <button key={k} role="radio" aria-checked={shownMode === k} disabled={!matches && k !== 'fuel'} onClick={() => setMode(k)} className={`px-2 py-1 font-medium disabled:opacity-40 ${shownMode === k ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>{l}</button>
-                ))}
-              </div>
-              <div className="flex items-center gap-2 border border-line2 bg-bg/90 px-2 py-1 text-[12px]">
-                <WindArrow fromDeg={matches ? now.windFromDeg : draft.windFromDeg} className="text-ink" />
-                <span>{Math.round(matches ? now.windSpeedKmh : draft.windSpeedKmh)} km/sa, {compass(matches ? now.windFromDeg : draft.windFromDeg)} yönünden</span>
-                <button onClick={() => setShowWind(!showWind)} aria-pressed={showWind} className={`ml-1 border-l border-line2 pl-2 font-medium ${showWind ? 'text-forest' : 'text-muted hover:text-ink'}`}>Akış</button>
-                <button onClick={() => setShowSmoke(!showSmoke)} aria-pressed={showSmoke} disabled={!matches} className={`border-l border-line2 pl-2 font-medium disabled:opacity-40 ${showSmoke ? 'text-forest' : 'text-muted hover:text-ink'}`}>Duman</button>
-                <button onClick={() => setShowExisting(!showExisting)} aria-pressed={showExisting} className={`border-l border-line2 pl-2 font-medium ${showExisting ? 'text-forest' : 'text-muted hover:text-ink'}`}>Mevcut önlemler</button>
-              </div>
-            </div>
-          }
         >
-          <Rectangle bounds={gridBounds(grid)} interactive={false} pathOptions={{ color: '#3fa564', weight: 1.5, dashArray: '6 6', fill: false }} />
           {region.settlements.map((st) => (
             <Marker key={st.id} position={st.pos} icon={icons.settlement}>
               <Tooltip direction="right" permanent offset={[8, 0]} className="fg-label">{st.name}</Tooltip>
@@ -315,27 +362,9 @@ export function Studio() {
           )}
         </MapStage>
 
-        {!matches && (
-          <div className="absolute left-14 top-2 z-[500] max-w-[300px] border border-line2 bg-bg/92 px-2.5 py-2 text-[12px]">
-            {sameArea
-              ? <>Tutuşma noktası taşındı. Harita yeni noktanın çevresindeki yakıtı gösteriyor; yangını görmek için <b>Simülasyonu başlat</b>'a basın.</>
-              : <><b>{region.name}</b> yeni bir alan. Harita bu alanın yakıtını gösteriyor. Tutuşma noktasını yerleştirin, hava durumunu ayarlayın ve <b>Simülasyonu başlat</b>'a basın.</>}
-          </div>
-        )}
-        {matches && dirty && progress === null && (
-          <div className="absolute left-14 top-2 z-[500] max-w-[300px] border border-amber/50 bg-bg/92 px-2.5 py-2 text-[12px] text-amber">
-            Ayarlar değişti. Harita hâlâ “{active.name}” senaryosunu gösteriyor. Güncellemek için Simülasyonu başlat'a basın.
-          </div>
-        )}
-        {matches && !dirty && (
-          <div className="absolute left-14 top-2 z-[500] border border-line2 bg-bg/92 px-2.5 py-1.5 text-[12px]">
-            Gösterilen: <b>{active.name}</b>
-          </div>
-        )}
-
         {progress !== null && (
           <div className="absolute inset-0 z-[900] flex items-center justify-center bg-bg/60">
-            <div className="w-[320px] border border-line2 bg-panel p-4">
+            <div className="w-[320px] rounded-xl border border-line2 bg-panel p-5 shadow-2xl">
               <div className="mb-2 flex items-center gap-2 text-[14px] font-semibold"><Loader2 size={16} className="animate-spin text-forest" /> Yangın yayılımı simüle ediliyor</div>
               <div className="h-2 bg-line"><div className="fg-busy h-full bg-forest transition-[width]" style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
               <div className="mt-2 text-[12px] text-muted">Arazi ızgarası oluşturuluyor; {draft.durationH} sa için rüzgar, nem ve eğim uygulanıyor…</div>
@@ -344,12 +373,14 @@ export function Studio() {
         )}
 
       </div>
-      <div className="border-t border-line bg-panel p-2"><Timeline /></div>
+      {events.length > 0 && <EventFeed events={events} onSeek={seekEvent} compact stepMin={res.stepMin} />}
+      <Timeline disabled={!matches} />
       </div>
 
       {/* live statistics */}
-      <aside className="w-full shrink-0 space-y-3 overflow-auto border-t border-line bg-bg p-3 lg:w-[290px] lg:border-l lg:border-t-0">
-        <Panel title={`Canlı istatistikler · T+${Math.floor(stat.minutes / 60)}:${String(stat.minutes % 60).padStart(2, '0')}`}>
+      {insightsOpen && <aside className="fg-insight-rail space-y-3" aria-label="Simülasyon analizi">
+        <div className="flex items-center justify-between pb-1"><span className="fg-eyebrow flex items-center gap-2"><Activity size={13} /> Model içgörüleri</span><button className="fg-icon-button" onClick={() => setInsightsOpen(false)} aria-label="Analiz panelini kapat"><PanelRightClose size={14} /></button></div>
+        <Panel title={`Model özeti · T+${Math.floor(stat.minutes / 60)}:${String(stat.minutes % 60).padStart(2, '0')}`}>
           <div className="grid grid-cols-2 gap-x-3 gap-y-3">
             <Stat label="Şu an yanan" value={fmtHa(stat.burningHa)} unit="ha" tone="fire" />
             <Stat label="Toplam etkilenen" value={fmtHa(stat.affectedHa)} unit="ha" tone="amber" />
@@ -359,6 +390,8 @@ export function Studio() {
             <Stat label="En uzak nokta" value={stat.maxRadiusKm.toFixed(1)} unit="km" hint="Tutuşma noktasına uzaklık" />
           </div>
         </Panel>
+
+        {matches && <Panel title="Olay akışı" action={<span className="text-[10px] text-muted">Zamana gitmek için seçin</span>}><EventFeed events={events} onSeek={seekEvent} stepMin={res.stepMin} /></Panel>}
 
         <Panel title={`Hava · T+${Math.floor(stat.minutes / 60)}:${String(stat.minutes % 60).padStart(2, '0')}`} action={res.config.weather ? <span className="text-[11px] text-muted">{WEATHER_SOURCE[res.config.weather.source]}</span> : <span className="text-[11px] text-muted">Sabit</span>}>
           <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[13px]">
@@ -458,7 +491,7 @@ export function Studio() {
             </ul>
           </Panel>
         )}
-      </aside>
+      </aside>}
     </div>
   )
 }

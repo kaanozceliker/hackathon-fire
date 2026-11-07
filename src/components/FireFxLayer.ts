@@ -29,13 +29,14 @@ interface Spark {
   size: number
 }
 
-const MAX_SPARKS = 260
+const MAX_SPARKS = 140
 
 export class FireFxLayer extends L.Layer {
   private canvas!: HTMLCanvasElement
   private mapRef!: L.Map
   private raf = 0
   private last = 0
+  private lastDraw = 0
   private grid: Grid | null = null
   private result: SimResult | null = null
   private getStep: () => number = () => 0
@@ -108,6 +109,8 @@ export class FireFxLayer extends L.Layer {
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame)
+    if (now - this.lastDraw < 32) return
+    this.lastDraw = now
     const dt = Math.min(0.05, (now - this.last) / 1000)
     this.last = now
     const ctx = this.canvas.getContext('2d')!
@@ -135,7 +138,7 @@ export class FireFxLayer extends L.Layer {
     for (let k = 0; k < this.burning.length; k += step) {
       const b = this.burning[k]
       const flick = this.reduced ? 1 : 0.78 + 0.22 * Math.sin(t * (3.1 + (b.phase % 1.7)) + b.phase) * Math.sin(t * 1.3 + b.phase * 2)
-      const a = (0.07 + 0.2 * b.heat * b.heat) * flick * Math.min(1, step)
+      const a = (0.05 + 0.16 * b.heat * b.heat) * flick
       if (a < 0.02) continue
       const r = cell * (0.9 + 1.4 * b.heat)
       ctx.globalAlpha = Math.min(0.55, a)
@@ -145,14 +148,14 @@ export class FireFxLayer extends L.Layer {
     // sparks: born on the flaming front, rise and drift with the wind, cool from yellow to red
     if (!this.reduced && cell > 1.2) {
       const front = this.burning.filter((b) => b.heat > 0.55)
-      const rate = Math.min(90, front.length * 0.9)
+      const rate = Math.min(50, front.length * 0.65)
       let spawn = rate * dt
       while (spawn > 0 && this.sparks.length < MAX_SPARKS && front.length) {
         if (spawn < 1 && Math.random() > spawn) break
         spawn -= 1
         const b = front[(Math.random() * front.length) | 0]
         const speed = 0.25 + b.ws / 40
-        const max = 0.9 + Math.random() * 1.4
+        const max = 0.7 + Math.random() * 0.8
         this.sparks.push({
           x: b.x + (Math.random() - 0.5) * 0.8,
           y: b.y + (Math.random() - 0.5) * 0.8,

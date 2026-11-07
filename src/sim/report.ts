@@ -33,8 +33,8 @@ export function buildReport(name: string, res: SimResult): ReportSection[] {
       lines: [
         `Senaryo: ${name}.`,
         `Alan: ${region.name}. Tutuşma noktası ${c.ignition[0].toFixed(4)}°K, ${c.ignition[1].toFixed(4)}°D; başlangıç şiddeti ${intensity}.`,
-        `Simülasyon süresi: 110 m'lik ızgarada (${res.grid.cols} × ${res.grid.rows} hücre) 10 dakikalık adımlarla ${c.durationH} sa.`,
-        'Bu, sentetik arazi üzerinde temsili bir hücresel otomat simülasyonudur; doğrulanmış bir orman yangını tahmini değildir.',
+        `Simülasyon süresi: ${res.grid.cellM} m'lik ızgarada (${res.grid.cols} × ${res.grid.rows} hücre) ${res.stepMin} dakikalık adımlarla ${c.durationH} sa.`,
+        'Bu, arazi girdileri ve temsili parametrelerle çalışan bir hücresel otomat simülasyonudur; doğrulanmış bir orman yangını tahmini değildir.',
       ],
     },
     {
