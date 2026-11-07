@@ -26,7 +26,7 @@ export function DataProvenance({ areaId }: { areaId: string }) {
             </div>
           </div>
         ))}
-        <p className="border-t border-line pt-2 text-[11.5px] leading-relaxed text-muted">Arazi verileri 110 m simülasyon hücrelerine işlenir. Yerel kopyaların indirilme zamanı kayıtlı değil. Bölgesel endeks, sabit hava, nüfus, kaynak envanteri ve maliyetler temsilidir. Open-Meteo hava verisi Stüdyo’dan ayrıca yüklenebilir.</p>
+        <p className="border-t border-line pt-2 text-[11.5px] leading-relaxed text-muted">Arazi verileri 110 m simülasyon hücrelerine işlenir. Yerel kopyaların indirilme zamanı kayıtlı değil. Bölgesel endeks, sabit hava, nüfus, kaynak envanteri ve maliyetler temsilidir. Open-Meteo hava verisi Komuta Merkezi’nden ayrıca yüklenebilir.</p>
       </div>
     </details>
   )

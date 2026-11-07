@@ -2,7 +2,12 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import { Circle, ImageOverlay, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Droplets, Eye, Helicopter, Home, Loader2, Milestone, Play, Plane, Save, Square, RotateCcw, Tractor, Trees, Truck } from 'lucide-react'
+import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Crosshair, Droplets, Eye, Flame, Helicopter, Home, Info, Layers3, Loader2, Milestone, Play, Plane, Save, ShieldCheck, Square, RotateCcw, Tractor, Trees, Truck, Wind } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { ScenarioSetup, useIgnitionPicker } from '../components/ScenarioSetup'
+import { TreeCoverOverlay, surroundings } from '../components/IgnitionSurroundings'
+import { ExistingOverlay } from '../components/ExistingOverlay'
+import { simYear } from '../sim/existing'
 import { MapStage, WindArrow } from '../components/MapStage'
 // the 3D view (MapTiler SDK, ~1.3 MB) loads only when chosen
 const Map3D = lazy(() => import('../components/Map3D').then((m) => ({ default: m.Map3D })))
@@ -75,7 +80,7 @@ function unitIcon(kind: ResourceKind, status: ResourceStatus): L.DivIcon {
 }
 
 export function Command() {
-  const { active, addScenario, notify } = useStore()
+  const { draft, addScenario, notify } = useStore()
   const run = useCommandRun()
   const [startMin, setStartMin] = useState(30)
   const [mode, setMode] = useState<CommanderMode>('ai')
@@ -148,11 +153,21 @@ export function Command() {
     aiHealth().then(setHealth)
   }, [])
 
-  const config = active.result.config
-  const region = regionById(config.areaId)
-  const grid = getGrid(config.areaId)
+  // the fire is set up here (the store's draft) and runs with the response; a finished run keeps the config it ran with
+  const config = run.live && run.live.config.areaId === draft.areaId ? run.live.config : draft
+  const region = regionById(draft.areaId)
+  const grid = getGrid(draft.areaId)
+  const changed = !!run.live && JSON.stringify({ ...run.live.config, durationH: 0 }) !== JSON.stringify({ ...draft, durationH: 0 })
+  const [setupOpen, setSetupOpen] = useState(true)
+  const { picking, setPicking, onMapClick: pickIgnition } = useIgnitionPicker(grid, region)
+  const [showTrees, setShowTrees] = useState(false)
+  const [showWind, setShowWind] = useState(true)
+  const [showExisting, setShowExisting] = useState(false)
+  const [landView, setLandView] = useState(false)
+  const around = useMemo(() => surroundings(grid, draft.ignition, simYear(draft)), [grid, draft])
   const infra = useMemo(() => getInfrastructure(region), [region])
-  const live = run.live
+  // a run from another working area does not fit this grid (it is reset right after an area change)
+  const live = run.live && run.live.config.areaId === draft.areaId ? run.live : null
   const rec = live?.response ?? null
   const head = run.head
   const stat = live ? live.series[Math.min(head, live.series.length - 1)] : null
@@ -166,11 +181,30 @@ export function Command() {
     setPrev(null)
     setBefore(null)
     setCompareBefore(false)
-    run.start(grid, config, region.settlements, infra, startMin, mode)
+    setPicking(false)
+    setSetupOpen(false)
+    run.start(grid, draft, region.settlements, infra, startMin, mode)
   }
+  // a new working area has another grid: the old run cannot be shown on it
+  const firstArea = useRef(true)
+  useEffect(() => {
+    if (firstArea.current) { firstArea.current = false; return }
+    run.reset()
+    setPrev(null)
+    setBefore(null)
+    setPlan(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.areaId])
+  // "Demoyu oynat" opens here and starts the response at once
+  const location = useLocation()
+  const autostart = (location.state as { autostart?: number } | null)?.autostart
+  useEffect(() => {
+    if (autostart) begin()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autostart])
   const save = () => {
     if (!live) return
-    addScenario(`Komuta – ${active.name.split(' – ')[0]}`, live)
+    addScenario(`Komuta – ${region.name}`, live)
     setSaved(true)
     notify('Müdahaleli senaryo kaydedildi; Analiz ve Raporlar\'da karşılaştırabilirsiniz.')
   }
@@ -185,12 +219,20 @@ export function Command() {
     <div className="fg-command flex min-h-full flex-col lg:h-full lg:flex-row">
       {/* setup */}
       <aside className="w-full shrink-0 space-y-3 overflow-auto border-b border-line bg-panel p-3 lg:w-[290px] lg:border-b-0 lg:border-r">
-        <Panel title="Müdahale senaryosu">
-          <div className="text-[14px] font-semibold">{active.name}</div>
-          <div className="mt-0.5 text-[12px] text-muted">
-            {region.name} · {config.weather ? 'Open-Meteo saatlik hava' : `sabit hava, rüzgar ${config.windSpeedKmh} km/sa ${compass(config.windFromDeg)}`}
+        <details className="fg-setting-section" open={setupOpen} onToggle={(e) => setSetupOpen((e.target as HTMLDetailsElement).open)}>
+          <summary><span className="flex items-center gap-2"><Flame size={14} className="text-orange" /> Yangın senaryosu</span><ChevronDown size={13} /></summary>
+          <div className="fg-setting-content">
+            {setupOpen && <ScenarioSetup grid={grid} region={region} around={around} picking={picking} setPicking={setPicking} showTrees={showTrees} setShowTrees={setShowTrees} weatherHours={72} disabled={run.status === 'running'} />}
+            {run.status === 'running' && <p className="mt-2 text-[11px] text-muted">Müdahale sürerken senaryo değiştirilemez. Durdurup değiştirin.</p>}
           </div>
-          <div className="mt-3 space-y-3">
+        </details>
+        {!setupOpen && (
+          <div className="px-1 text-[12px] text-muted">
+            {region.name} · {draft.weather ? 'Open-Meteo saatlik hava' : `sabit hava, rüzgar ${draft.windSpeedKmh} km/sa ${compass(draft.windFromDeg)}`}
+          </div>
+        )}
+        <Panel title="Müdahale">
+          <div className="space-y-3">
             <SliderField label="Müdahale başlangıcı" value={startMin} min={0} max={180} step={10} unit="dk" onChange={setStartMin} hint="Yangın başladıktan kaç dakika sonra ilk karar verilir ve ekipler yola çıkar" />
             <div>
               <div className="mb-1 text-[12px] text-muted">Olay komutanı</div>
@@ -253,6 +295,7 @@ export function Command() {
               </div>
             )}
           </div>
+        {picking ? <div className="fg-scene-notice"><Crosshair size={13} className="shrink-0" />Kesikli çalışma alanında bir başlangıç noktası seçin. Vazgeçmek için Esc tuşuna basın.</div> : changed && run.status !== 'running' && <div className="fg-scene-notice"><Info size={13} className="shrink-0" />Senaryo ayarları değişti. Haritadaki müdahale eski ayarlarla çalıştı; yenisi için müdahaleyi yeniden başlatın.</div>}
         <div className="fg-command-map relative min-h-[420px] flex-1">
           {view === '3d' ? (
             <Suspense fallback={<div className="flex h-full items-center justify-center bg-bg text-[13px] text-muted"><Loader2 size={16} className="mr-2 animate-spin" />3B harita yükleniyor…</div>}>
@@ -272,13 +315,15 @@ export function Command() {
               const v = z >= 0 && zoneColors?.[z] ? z : null
               setHoverZone((prev) => (prev === v ? prev : v))
             }}
-            pick={!!zoneColors}
+            pick={picking || !!zoneColors}
             onMapClick={(lat, lon) => {
+              if (picking) return pickIgnition(lat, lon)
               if (!zoneColors || !live) return
               const z = zoneOfCell(live, cellOf(grid, lat, lon))
               setOpenZone(z >= 0 && zoneColors[z] ? { zone: z, at: [lat, lon] } : null)
             }}
-            mode={(compareBefore && before) || (compare && run.baseline) ? 'diff' : live ? 'fire' : 'none'}
+            mode={(compareBefore && before) || (compare && run.baseline) ? 'diff' : landView ? 'fuel' : live ? 'fire' : 'none'}
+            wind={showWind ? { config, minutes: live ? run.headMin : 0 } : null}
             fitGrid
             fitKey={config.areaId}
             hud
@@ -288,6 +333,14 @@ export function Command() {
                 <Legend title="Önlemlerin etkisi" items={[{ color: 'rgba(217,89,38,.85)', label: 'Önlemler sayesinde yanmadı' }, { color: 'rgba(57,135,229,.8)', label: 'Yalnızca önlemli senaryoda yandı' }, { color: 'rgba(235,235,225,.55)', label: 'İki durumda da yandı' }]} />
               ) : compare ? (
                 <Legend title="Müdahalenin etkisi" items={[{ color: 'rgba(217,89,38,.85)', label: 'Müdahale sayesinde yanmadı' }, { color: 'rgba(235,235,225,.55)', label: 'İki durumda da yandı' }]} />
+              ) : landView ? (
+                <Legend title="Arazi örtüsü ve yakıt" items={[
+                  { color: 'rgba(122,146,155,.7)', label: 'Çam ormanı (yoğun yakıt)' },
+                  { color: 'rgba(169,156,133,.5)', label: 'Maki çalılığı' },
+                  { color: 'rgba(190,180,90,.4)', label: 'Seyrek / tarım' },
+                  { color: 'rgba(160,170,175,.5)', label: 'Yerleşim' },
+                  { color: 'rgba(40,90,140,.6)', label: 'Su' },
+                ]} />
               ) : (
                 <Legend title="Müdahale" items={[
                   { color: lineColor(1), label: '1. güvenlik sınırı (soluk: planlanan)' },
@@ -301,7 +354,14 @@ export function Command() {
               )
             }
             controls={
-              done && run.baseline ? (
+              <div className="flex flex-col items-end gap-1">
+                <details className="fg-layer-menu"><summary><Layers3 size={13} /> Katmanlar <ChevronDown size={11} /></summary><div>
+                  <label><input type="checkbox" checked={showWind} onChange={(e) => setShowWind(e.target.checked)} /><Wind size={14} /> Rüzgar akışı</label>
+                  <label><input type="checkbox" checked={landView} onChange={(e) => setLandView(e.target.checked)} /><Layers3 size={14} /> Arazi ve yakıt</label>
+                  <label><input type="checkbox" checked={showTrees} onChange={(e) => setShowTrees(e.target.checked)} /><Trees size={14} /> Ağaç örtüsü</label>
+                  <label><input type="checkbox" checked={showExisting} onChange={(e) => setShowExisting(e.target.checked)} /><ShieldCheck size={14} /> Koruma altyapısı</label>
+                </div></details>
+              {done && run.baseline ? (
                 <div className="flex flex-col items-end gap-1">
                   <button onClick={() => { setCompare(!compare); setCompareBefore(false) }} aria-pressed={compare} className={`border border-line2 bg-bg/90 px-2.5 py-1 text-[12px] font-medium ${compare ? 'text-forest' : 'text-muted hover:text-ink'}`}>
                     {compare ? 'Müdahaleyi göster' : 'Müdahalesiz hâliyle karşılaştır'}
@@ -312,9 +372,12 @@ export function Command() {
                     </button>
                   )}
                 </div>
-              ) : undefined
+              ) : null}
+              </div>
             }
           >
+            {showExisting && <ExistingOverlay grid={grid} year={simYear(draft)} />}
+            {showTrees && <TreeCoverOverlay grid={grid} s={around} at={draft.ignition} />}
             {rec && !compare && <UnitsLayer rec={rec} clockRef={run.clockRef} />}
             {prev && !compareBefore && <MeasuresOverlay grid={grid} measures={shownMeasures} plan={prev.plan} open={openMeasure} setOpen={setOpenMeasure} faded={!!before} />}
             {plan && zoneColors && live && <ZoneOverlay result={live} plan={plan.plan} ctx={plan.ctx} open={openZone} setOpen={setOpenZone} />}
@@ -327,7 +390,7 @@ export function Command() {
                 </Marker>
               )
             })}
-            <Marker position={config.ignition} icon={icons.ignition}><Tooltip direction="top" offset={[0, -12]}>Tutuşma noktası</Tooltip></Marker>
+            <Marker position={draft.ignition} icon={icons.ignition}><Tooltip direction="top" offset={[0, -12]}>Tutuşma noktası</Tooltip></Marker>
           </MapStage>
           )}
 

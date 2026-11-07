@@ -74,7 +74,7 @@ export function Analytics() {
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-3 p-3">
-      <Panel title="Karşılaştırılacak senaryolar" action={<span className="text-[12px] text-muted">En fazla dört tane seçin. Yenilerini Simülasyon Stüdyosunda çalıştırın.</span>}>
+      <Panel title="Karşılaştırılacak senaryolar" action={<span className="text-[12px] text-muted">En fazla dört tane seçin. Yenilerini Komuta Merkezinde çalıştırıp kaydedin.</span>}>
         <div className="flex flex-wrap gap-2">
           {scenarios.map((s) => {
             const on = compareIds.includes(s.id)

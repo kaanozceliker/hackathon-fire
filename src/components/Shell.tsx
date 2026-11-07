@@ -12,7 +12,6 @@ const GROUPS: { title: string; items: { to: string; label: string; hint: string;
     title: 'Planla',
     items: [
       { to: '/', label: 'Gösterge Paneli', hint: 'Bölgelerin risk durumu', icon: LayoutDashboard },
-      { to: '/studio', label: 'Simülasyon Stüdyosu', hint: 'Yangını başlat, yayılımı izle', icon: Flame },
       { to: '/planner', label: 'Müdahale Planlayıcı', hint: 'Erişim ve tahliye rotaları', icon: Route },
       { to: '/varlik', label: 'Varlık Kalkanı', hint: 'Evinizin, işyerinizin riski', icon: Shield },
     ],
@@ -20,7 +19,7 @@ const GROUPS: { title: string; items: { to: string; label: string; hint: string;
   {
     title: 'Müdahale et',
     items: [
-      { to: '/command', label: 'Komuta Merkezi', hint: 'Ekipleri ve kararları yönet', icon: Siren },
+      { to: '/command', label: 'Komuta Merkezi', hint: 'Yangını başlat, ekipleri yönet', icon: Siren },
       { to: '/tatbikat', label: 'Tatbikat', hint: 'Önlem planınızı sınayın', icon: ClipboardCheck },
     ],
   },
@@ -36,9 +35,8 @@ const GROUPS: { title: string; items: { to: string; label: string; hint: string;
 /** What each page is for, under its title. */
 const PURPOSE: Record<string, string> = {
   '/': 'Orman alanlarının yangın riski ve son senaryolar',
-  '/studio': 'Haritada bir tutuşma noktası seçin, havayı ayarlayın ve yangının yayılımını izleyin',
   '/planner': 'Ekiplerin yangına erişim rotaları ve yerleşimlerin tahliye yolları',
-  '/command': 'Yangına müdahaleyi yapay zeka ya da kural tabanlı komutanla yönetin',
+  '/command': 'Yangını kurun, müdahaleyi yapay zeka ya da kural tabanlı komutanla yönetin',
   '/history': 'Gerçek bir yangın uydu verisiyle; önlemler alınsaydı ne olurdu',
   '/analytics': 'Senaryoları karşılaştırın, raporu PDF olarak indirin',
   '/tatbikat': 'Bütçeyle önlem planı yapın, sistem en olası noktalardan yangın başlatsın',
@@ -53,15 +51,13 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
     narrow.addEventListener('change', update)
     return () => narrow.removeEventListener('change', update)
   }, [])
-  const { scenarios, active, setActive, restart, setPlaying, toast } = useStore()
+  const { scenarios, active, setActive, toast } = useStore()
   const nav = useNavigate()
   const { pathname } = useLocation()
   const [theme, setTheme] = useTheme()
   const runDemo = () => {
     setActive('demo')
-    restart()
-    nav('/studio')
-    window.setTimeout(() => setPlaying(true), 250)
+    nav('/command', { state: { autostart: Date.now() } })
   }
   return (
     <div className="flex h-full bg-bg">

@@ -30,7 +30,7 @@ export function Dashboard() {
   }
   const openStudio = (id: string) => {
     setDraftArea(id)
-    nav('/studio')
+    nav('/command')
   }
 
   return (
@@ -118,7 +118,7 @@ export function Dashboard() {
             <div className="mt-3 text-[12px] text-muted">Çalışma alanında {region.settlements.length} yerleşim · bölgesel orman alanı ~{region.forestKm2.toLocaleString('tr-TR')} km² (temsili)</div>
             <div className="mt-3 flex gap-2">
               <button onClick={() => openStudio(region.id)} className="flex flex-1 items-center justify-center gap-1.5 bg-forest px-3 py-2 text-[13px] font-semibold text-bg hover:bg-forest/85">
-                Simülasyon Stüdyosunda incele <ArrowRight size={14} />
+                Komuta Merkezinde incele <ArrowRight size={14} />
               </button>
             </div>
           </Panel>
@@ -147,7 +147,7 @@ export function Dashboard() {
                 const c = s.result.config
                 return (
                   <li key={s.id}>
-                    <button onClick={() => { setActive(s.id); nav('/studio') }} className="flex w-full items-start gap-2 border-b border-line px-3 py-2 text-left hover:bg-panel2">
+                    <button onClick={() => { setActive(s.id); nav('/command') }} className="flex w-full items-start gap-2 border-b border-line px-3 py-2 text-left hover:bg-panel2">
                       <span className="mt-1 h-2.5 w-2.5 shrink-0" style={{ background: s.color }} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13px] font-medium">{s.name}</span>

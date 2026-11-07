@@ -1,9 +1,8 @@
 import { lazy } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { Shell } from './components/Shell'
 import { Dashboard } from './pages/Dashboard'
 
-const Studio = lazy(() => import('./pages/Studio').then((page) => ({ default: page.Studio })))
 const Planner = lazy(() => import('./pages/Planner').then((page) => ({ default: page.Planner })))
 const Analytics = lazy(() => import('./pages/Analytics').then((page) => ({ default: page.Analytics })))
 const Command = lazy(() => import('./pages/Command').then((page) => ({ default: page.Command })))
@@ -15,7 +14,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Shell title="Gösterge Paneli"><Dashboard /></Shell>} />
-      <Route path="/studio" element={<Shell title="Simülasyon Stüdyosu"><Studio /></Shell>} />
+      {/* the Simülasyon Stüdyosu moved into the Komuta Merkezi */}
+      <Route path="/studio" element={<Navigate to="/command" replace />} />
       <Route path="/planner" element={<Shell title="Müdahale Planlayıcı"><Planner /></Shell>} />
       <Route path="/command" element={<Shell title="Komuta Merkezi"><Command /></Shell>} />
       <Route path="/history" element={<Shell title="Geçmişteki Yangınlar"><History /></Shell>} />
