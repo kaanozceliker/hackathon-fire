@@ -2,23 +2,22 @@ import { useEffect, useRef } from 'react'
 import * as maptilersdk from '@maptiler/sdk'
 import '@maptiler/sdk/dist/maptiler-sdk.css'
 import { gridBounds } from '../sim/terrain'
-import { trackPosition } from '../lib/tracks'
 import { lineColor } from './ResponseLayer'
 import { TreeLayer } from './TreeLayer'
-import type { Grid, ResourceKind, ResponseRecord, Settlement, SimResult } from '../sim/types'
+import { ResponseLayer3D } from './ResponseLayer3D'
+import type { Grid, ResponseRecord, Settlement, SimResult } from '../sim/types'
 
 /**
  * 3D view on MapTiler (Satellite Hybrid style with terrain). The fire, burned area and safety lines are painted
- * into a texture laid over the terrain; resource icons move along their routes from the playback clock; buildings
- * stand as 3D blocks that show the fire reaching them.
+ * into a texture laid over the terrain; 3D trees dry, burn and char with it; the resources are 3D models moving
+ * along their routes from the playback clock, with their water drops and sprays; buildings stand as 3D blocks
+ * that show the fire reaching them.
  * Needs VITE_MAPTILER_KEY in .env (a public, browser-side key: restrict it to your domains in MapTiler Cloud).
  */
 
 const KEY = import.meta.env.VITE_MAPTILER_KEY as string | undefined
 const SCALE = 4 // texture pixels per grid cell
 const RAMP = ['#fff2a8', '#ffd24a', '#ffa530', '#f77a25', '#e5502a', '#c93426', '#a52a22'].map((h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)])
-const KIND_COLOR: Record<ResourceKind, string> = { crew: '#e5483d', dozer: '#e3a72f', heli: '#3b9be0', plane: '#7fc4f0' }
-const KIND_LETTER: Record<ResourceKind, string> = { crew: 'A', dozer: 'İ', heli: 'H', plane: 'U' }
 const hexRgb = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
 
 export interface Map3DProps {
@@ -76,13 +75,22 @@ export function Map3D(props: Map3DProps) {
       if (result)
         for (let i = 0; i < cols * rows; i++) {
           const t = result.ignitionStep[i]
-          const f = t < 0 ? 0 : Math.min(1, step - (t - 1))
-          if (f <= 0) continue
+          if (t < 0) continue
+          // just ahead of the front: dried, browned ground
+          if (t > step) {
+            if (t - step <= 3) put(i, 128, 98, 52, Math.round(120 * (1 - (t - step) / 3.5)))
+            continue
+          }
+          const f = Math.min(1, step - (t - 1))
           const end = result.burnoutStep[i]
-          if (step >= end) put(i, 40, 18, 16, Math.round(200 * f))
+          // burned: charcoal ground (the 3D trees show the black stems on it)
+          if (step >= end) put(i, 34, 30, 28, Math.round(225 * f))
           else {
-            const c = RAMP[Math.min(RAMP.length - 1, Math.floor((Math.max(0, step - t) / Math.max(1, end - t)) * RAMP.length))]
-            put(i, c[0], c[1], c[2], Math.round(235 * f))
+            // burning: dark ground with an ember glow that fades as the cell burns out
+            const k = Math.max(0, step - t) / Math.max(1, end - t)
+            const c = RAMP[Math.min(RAMP.length - 1, 2 + Math.floor(k * (RAMP.length - 2)))]
+            const e = 0.6 * (1 - k)
+            put(i, Math.round(40 * (1 - e) + c[0] * e), Math.round(30 * (1 - e) + c[1] * e * 0.8), Math.round(26 * (1 - e) + c[2] * e * 0.5), Math.round(230 * f))
           }
         }
       if (rec)
@@ -123,6 +131,8 @@ export function Map3D(props: Map3DProps) {
       // under the cursor, glow orange while the fire is on them and go dark once it has passed
       // 3D trees on the forest and maquis cells (zoomed in)
       map.addLayer(new TreeLayer(grid, () => ({ result: propsRef.current.result, step: propsRef.current.clockRef.current / 10 })))
+      // engines, dozers, helicopters and planes as 3D models, with drops, scooping, hose streams and dust
+      map.addLayer(new ResponseLayer3D(grid, () => ({ rec: propsRef.current.rec, step: propsRef.current.clockRef.current / 10 })))
       map.addSource('fg-buildings', { type: 'vector', url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${KEY}` })
       map.addLayer({
         id: 'fg-buildings',
@@ -218,14 +228,18 @@ export function Map3D(props: Map3DProps) {
     const ig = propsRef.current.ignition
     fixed.push(new maptilersdk.Marker({ element: label('🔥', 'fg3d-ignition') }).setLngLat([ig[1], ig[0]]).addTo(map))
 
-    // resource icons, moved every frame
-    const units = new Map<string, maptilersdk.Marker>()
+    // the fire texture and the buildings follow the playback clock; the 3D layers redraw with each frame it moves
     let raf = 0
     let lastPaint = 0
     let lastStep = -1
+    let lastFrameStep = -1
     const loop = (now: number) => {
-      const { rec, clockRef } = propsRef.current
+      const { clockRef } = propsRef.current
       const step = clockRef.current / 10
+      if (step !== lastFrameStep) {
+        lastFrameStep = step
+        map.triggerRepaint()
+      }
       if (step !== lastStep && now - lastPaint > 66) {
         lastStep = step
         lastPaint = now
@@ -235,35 +249,11 @@ export function Map3D(props: Map3DProps) {
         lastMark = now
         markBuildings(step)
       }
-      const seen = new Set<string>()
-      for (const tr of rec?.tracks ?? []) {
-        const pos = trackPosition(tr, step)
-        if (!pos) continue
-        seen.add(tr.id)
-        let m = units.get(tr.id)
-        if (!m) {
-          const d = document.createElement('div')
-          d.className = 'fg3d-unit'
-          d.style.background = KIND_COLOR[tr.kind]
-          d.style.borderRadius = tr.kind === 'heli' || tr.kind === 'plane' ? '50%' : '4px'
-          d.textContent = KIND_LETTER[tr.kind]
-          d.title = tr.name
-          m = new maptilersdk.Marker({ element: d }).setLngLat([pos.ll[1], pos.ll[0]]).addTo(map)
-          units.set(tr.id, m)
-        } else m.setLngLat([pos.ll[1], pos.ll[0]])
-        m.getElement().style.opacity = pos.status === 'idle' || pos.status === 'grounded' ? '0.55' : '1'
-      }
-      for (const [id, m] of units)
-        if (!seen.has(id)) {
-          m.remove()
-          units.delete(id)
-        }
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
     return () => {
       cancelAnimationFrame(raf)
-      units.forEach((m) => m.remove())
       fixed.forEach((m) => m.remove())
       map.remove()
     }

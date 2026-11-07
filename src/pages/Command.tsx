@@ -320,6 +320,12 @@ export function Command() {
           </div>
         {picking ? <div className="fg-scene-notice"><Crosshair size={13} className="shrink-0" />Kesikli çalışma alanında bir başlangıç noktası seçin. Vazgeçmek için Esc tuşuna basın.</div> : changed && run.status !== 'running' && <div className="fg-scene-notice"><Info size={13} className="shrink-0" />Senaryo ayarları değişti. Haritadaki müdahale eski ayarlarla çalıştı; yenisi için müdahaleyi yeniden başlatın.</div>}
         <div className="fg-command-map relative min-h-[420px] flex-1">
+          {/* full screen, for the 2D and the 3D map alike */}
+          {run.status !== 'idle' && (
+            <button onClick={toggleFull} aria-pressed={full} className="absolute left-[52px] top-[10px] z-[800] flex items-center gap-1.5 border border-line2 bg-bg/90 px-2.5 py-1 text-[12px] font-medium text-muted hover:text-ink">
+              {full ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {full ? 'Tam ekrandan çık' : 'Tam ekran'}
+            </button>
+          )}
           {view === '3d' ? (
             <Suspense fallback={<div className="flex h-full items-center justify-center bg-bg text-[13px] text-muted"><Loader2 size={16} className="mr-2 animate-spin" />3B harita yükleniyor…</div>}>
               <Map3D grid={grid} result={live} rec={rec} clockRef={run.clockRef} settlements={region.settlements} ignition={config.ignition} />
@@ -378,11 +384,6 @@ export function Command() {
             }
             controls={
               <div className="flex flex-col items-end gap-1">
-                {run.status !== 'idle' && (
-                  <button onClick={toggleFull} aria-pressed={full} className="flex items-center gap-1.5 border border-line2 bg-bg/90 px-2.5 py-1 text-[12px] font-medium text-muted hover:text-ink">
-                    {full ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {full ? 'Tam ekrandan çık' : 'Tam ekran'}
-                  </button>
-                )}
                 <details className="fg-layer-menu"><summary><Layers3 size={13} /> Katmanlar <ChevronDown size={11} /></summary><div>
                   <label><input type="checkbox" checked={showWind} onChange={(e) => setShowWind(e.target.checked)} /><Wind size={14} /> Rüzgar akışı</label>
                   <label><input type="checkbox" checked={landView} onChange={(e) => setLandView(e.target.checked)} /><Layers3 size={14} /> Arazi ve yakıt</label>
