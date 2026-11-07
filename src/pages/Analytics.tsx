@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend as RLegend, Line, LineChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts'
-import { Download, Printer, Trash2 } from 'lucide-react'
+import { Download, FileText, Loader2, Printer, Trash2 } from 'lucide-react'
+import { downloadReportPdf } from '../lib/pdfReport'
 import { MapStage } from '../components/MapStage'
 import { Panel, Segmented, fmtHa } from '../components/ui'
 import { regionById } from '../data/regions'
@@ -46,6 +47,19 @@ export function Analytics() {
     a.click()
     URL.revokeObjectURL(a.href)
     notify('Rapor Markdown olarak indirildi.')
+  }
+
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const downloadPdf = async () => {
+    setPdfBusy(true)
+    try {
+      await downloadReportPdf(reportSc.name, reportSc.result, `forestguard-rapor-${reportSc.id}.pdf`)
+      notify('Rapor PDF olarak indirildi.')
+    } catch (e) {
+      notify(`PDF oluşturulamadı: ${(e as Error).message}`)
+    } finally {
+      setPdfBusy(false)
+    }
   }
 
   const row = (label: string, fn: (x: (typeof finals)[number]) => string) => (
@@ -215,7 +229,8 @@ export function Analytics() {
             <select aria-label="Rapor senaryosu" value={reportSc.id} onChange={(e) => setReportId(e.target.value)} className="max-w-[240px] border border-line2 bg-bg px-2 py-1 text-[12px]">
               {scenarios.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <button onClick={download} className="flex items-center gap-1.5 border border-line2 px-2 py-1 text-[12px] hover:text-forest"><Download size={13} /> İndir</button>
+            <button onClick={downloadPdf} disabled={pdfBusy} className="flex items-center gap-1.5 border border-forest/60 px-2 py-1 text-[12px] font-semibold text-forest hover:bg-forest-dim/40 disabled:opacity-60">{pdfBusy ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} PDF</button>
+            <button onClick={download} className="flex items-center gap-1.5 border border-line2 px-2 py-1 text-[12px] hover:text-forest"><Download size={13} /> Markdown</button>
             <button onClick={() => window.print()} className="flex items-center gap-1.5 border border-line2 px-2 py-1 text-[12px] hover:text-forest"><Printer size={13} /> Yazdır</button>
           </div>
         }

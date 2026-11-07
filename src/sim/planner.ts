@@ -96,6 +96,66 @@ export function buildHazards(result: SimResult, infra: Infrastructure): EdgeHaza
   })
 }
 
+/** Short connector edges that join a point of interest to the road graph; never reported as a road by name. */
+const LINK_NAMES = new Set(['İstasyon bağlantısı', 'Yerleşim bağlantısı', 'Toplanma alanı bağlantısı'])
+
+const adjCache = new WeakMap<Infrastructure, Map<string, NetEdge[]>>()
+function adjacencyOf(infra: Infrastructure) {
+  let m = adjCache.get(infra)
+  if (!m) {
+    m = new Map()
+    for (const e of infra.edges) for (const v of [e.from, e.to]) {
+      const list = m.get(v)
+      if (list) list.push(e)
+      else m.set(v, [e])
+    }
+    adjCache.set(infra, m)
+  }
+  return m
+}
+
+/** Binary min-heap of (cost, node id) for Dijkstra. */
+class MinHeap {
+  private k: number[] = []
+  private v: string[] = []
+  push(key: number, val: string) {
+    let i = this.k.length
+    this.k.push(key)
+    this.v.push(val)
+    while (i > 0) {
+      const p = (i - 1) >> 1
+      if (this.k[p] <= key) break
+      this.k[i] = this.k[p]
+      this.v[i] = this.v[p]
+      i = p
+    }
+    this.k[i] = key
+    this.v[i] = val
+  }
+  pop(): [number, string] | null {
+    if (!this.k.length) return null
+    const top: [number, string] = [this.k[0], this.v[0]]
+    const key = this.k.pop()!
+    const val = this.v.pop()!
+    const n = this.k.length
+    if (n) {
+      let i = 0
+      for (;;) {
+        const l = 2 * i + 1
+        if (l >= n) break
+        const c = l + 1 < n && this.k[l + 1] < this.k[l] ? l + 1 : l
+        if (this.k[c] >= key) break
+        this.k[i] = this.k[c]
+        this.v[i] = this.v[c]
+        i = c
+      }
+      this.k[i] = key
+      this.v[i] = val
+    }
+    return top
+  }
+}
+
 function findRoute(
   infra: Infrastructure,
   hazards: Map<string, EdgeHazard>,
@@ -104,37 +164,34 @@ function findRoute(
   startMin: number,
   penalty: Map<string, number> = new Map(),
 ): RoutePlan | null {
-  const nodeIds = infra.nodes.map((n) => n.id)
-  const cost = new Map<string, number>(nodeIds.map((id) => [id, Infinity]))
+  const adj = adjacencyOf(infra)
+  const cost = new Map<string, number>()
   const time = new Map<string, number>()
   const prev = new Map<string, { edge: NetEdge; from: string }>()
   const done = new Set<string>()
   cost.set(fromId, 0)
   time.set(fromId, startMin)
+  const heap = new MinHeap()
+  heap.push(0, fromId)
   for (;;) {
-    let u: string | null = null
-    let best = Infinity
-    for (const id of nodeIds) {
-      const c = cost.get(id)!
-      if (!done.has(id) && c < best) {
-        best = c
-        u = id
-      }
-    }
-    if (u === null || u === toId) break
+    const top = heap.pop()
+    if (!top) break
+    const [best, u] = top
+    if (done.has(u) || best > (cost.get(u) ?? Infinity)) continue
+    if (u === toId) break
     done.add(u)
-    for (const e of infra.edges) {
-      if (e.from !== u && e.to !== u) continue
+    for (const e of adj.get(u) ?? []) {
       const v = e.from === u ? e.to : e.from
       if (done.has(v)) continue
       const travel = (e.lengthM / 1000 / ROAD_SPEED[e.type]) * 60
       const tEnd = time.get(u)! + travel
       const blocked = (hazards.get(e.id)?.firstFireMin ?? Infinity) <= tEnd
       const c = best + travel * (blocked ? 6 : 1) * (penalty.get(e.id) ?? 1)
-      if (c < cost.get(v)!) {
+      if (c < (cost.get(v) ?? Infinity)) {
         cost.set(v, c)
         time.set(v, tEnd)
         prev.set(v, { edge: e, from: u })
+        heap.push(c, v)
       }
     }
   }
@@ -155,7 +212,7 @@ function findRoute(
   }
   const distanceKm = edges.reduce((s, e) => s + e.lengthM, 0) / 1000
   const etaMin = (time.get(toId) ?? startMin) - startMin
-  const names = edges.map((e) => e.name).filter((n, i, a) => n !== 'İstasyon bağlantısı' && a.indexOf(n) === i)
+  const names = edges.map((e) => e.name).filter((n, i, a) => !LINK_NAMES.has(n) && a.indexOf(n) === i)
   return {
     from: infra.nodes.find((n) => n.id === fromId)!,
     to: infra.nodes.find((n) => n.id === toId)!,
@@ -185,12 +242,12 @@ export function buildResponsePlan(result: SimResult, infra: Infrastructure, sett
 
   let alternative: RoutePlan | null = null
   if (primary) {
-    const pen = new Map(primary.edges.filter((e) => e.name !== 'İstasyon bağlantısı').map((e) => [e.id, 3]))
+    const pen = new Map(primary.edges.filter((e) => !LINK_NAMES.has(e.name)).map((e) => [e.id, 3]))
     const alts = stations
       .map((s) => findRoute(infra, hz, s.id, target.id, DISPATCH_DELAY_MIN, pen))
       .filter((r): r is RoutePlan => !!r)
       .filter((r) => {
-        const shared = r.edges.filter((e) => primary.edges.some((p) => p.id === e.id && e.name !== 'İstasyon bağlantısı')).length
+        const shared = r.edges.filter((e) => primary.edges.some((p) => p.id === e.id && !LINK_NAMES.has(e.name))).length
         return shared < r.edges.length && !(r.from.id === primary.from.id && shared === r.edges.length)
       })
       .sort((a, b) => a.etaMin + a.blockedEdges.length * 30 - (b.etaMin + b.blockedEdges.length * 30))

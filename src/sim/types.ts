@@ -18,6 +18,26 @@ export interface SimConfig {
   terrain: TerrainType
   /** Multiplier on vegetation density (fuel load). */
   fuelLoad: number
+  /**
+   * Hourly weather that changes over the run (and across the grid). When absent the single values above hold for
+   * the whole run everywhere.
+   */
+  weather?: WeatherSeries
+}
+
+export interface WeatherSeries {
+  source: 'open-meteo-forecast' | 'open-meteo-archive' | 'custom'
+  /** Local start hour, Europe/Istanbul, e.g. "2026-07-28T13:00". Hour 0 of the run. */
+  startIso: string
+  /** 3×3 sample points, row-major from north-west to south-east. */
+  points: LatLon[]
+  /** Values per [point][hour]; hour 0 = startIso, at least durationH + 1 hours. */
+  temperatureC: number[][]
+  humidityPct: number[][]
+  windSpeedKmh: number[][]
+  /** Direction the wind blows FROM, degrees clockwise from north. */
+  windFromDeg: number[][]
+  precipMmH: number[][]
 }
 
 export interface Settlement {

@@ -1,4 +1,8 @@
 import { compass, fmtDuration } from './geo'
+import { weatherSeries, windShift } from './weather'
+import { aqiOf, computeSmoke, exposures } from './smoke'
+import { STEP_MIN } from './engine'
+import { SPECIES } from '../data/species.generated'
 import { getInfrastructure } from '../data/infrastructure'
 import { regionById } from '../data/regions'
 import { buildResponsePlan } from './planner'
@@ -35,8 +39,10 @@ export function buildReport(name: string, res: SimResult): ReportSection[] {
     {
       title: 'Çevresel koşullar',
       lines: [
-        `Sıcaklık ${c.temperatureC} °C, bağıl nem %${c.humidityPct}, yağış ${c.precipMmH} mm/sa.`,
-        `Rüzgar ${c.windSpeedKmh} km/sa, ${compass(c.windFromDeg)} yönünden (${c.windFromDeg}°); yangını ${compass(c.windFromDeg + 180)} yönüne itiyor.`,
+        ...(c.weather ? hourlyWeatherLines(c) : [
+          `Sıcaklık ${c.temperatureC} °C, bağıl nem %${c.humidityPct}, yağış ${c.precipMmH} mm/sa.`,
+          `Rüzgar ${c.windSpeedKmh} km/sa, ${compass(c.windFromDeg)} yönünden (${c.windFromDeg}°); yangını ${compass(c.windFromDeg + 180)} yönüne itiyor.`,
+        ]),
         `Arazi: ${terrain}; bitki örtüsü yoğunluğu örnek referansın %${Math.round(c.fuelLoad * 100)} kadarı.`,
       ],
     },
@@ -54,6 +60,7 @@ export function buildReport(name: string, res: SimResult): ReportSection[] {
         ? plan.threatened.map((s) => `${s.name} (${n0(s.population)} kişi): yangın yerleşim sınırına ${T(s.arrivalMin)} anında ulaşıyor; çevre arazinin %${Math.round(s.exposurePct)} kadarı yanıyor.`)
         : ['Simüle edilen süre içinde çalışma alanındaki hiçbir yerleşime ulaşılmıyor.'],
     },
+    ...smokeSections(res),
     {
       title: 'Önerilen müdahale değerlendirmeleri',
       lines: [
@@ -65,6 +72,106 @@ export function buildReport(name: string, res: SimResult): ReportSection[] {
       ],
     },
   ]
+}
+
+function hourlyWeatherLines(c: SimResult['config']): string[] {
+  const s = weatherSeries(c)
+  const range = (k: 'windSpeedKmh' | 'humidityPct' | 'temperatureC') => `${Math.round(Math.min(...s.map((p) => p[k])))}–${Math.round(Math.max(...s.map((p) => p[k])))}`
+  const src = c.weather!.source === 'open-meteo-archive' ? 'Open-Meteo arşivi (ERA5)' : c.weather!.source === 'open-meteo-forecast' ? 'Open-Meteo tahmini' : 'özel seri'
+  const shift = windShift(c)
+  return [
+    `Hava: ${src}, ${c.weather!.startIso.replace('T', ' ')} başlangıçlı saatlik veri, ızgarada 9 noktadan enterpole edildi.`,
+    `Sıcaklık ${range('temperatureC')} °C, bağıl nem %${range('humidityPct')}, toplam yağış ${s.reduce((a, p) => a + p.precipMmH, 0).toFixed(1)} mm.`,
+    `Rüzgar ${range('windSpeedKmh')} km/sa; başlangıçta ${compass(s[0].windFromDeg)} yönünden esiyor.`,
+    shift
+      ? `Rüzgar T+${shift.hour}:00'da ${compass(shift.fromDeg)} yönünden ${compass(shift.toDeg)} yönüne döndü; yayılım yönü buna göre değişir.`
+      : 'Simüle edilen süre boyunca rüzgar yönünde 45°yi aşan bir dönüş yok.',
+  ]
+}
+
+const MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
+const CLASS_TR = { mammal: 'memeli', bird: 'kuş', reptile: 'sürüngen', amphibian: 'amfibi' } as const
+const CAR_T_PER_YEAR = 4.6
+
+/** Emissions, effects on people from smoke, and effects on wildlife. Screening estimates, labelled as such. */
+function smokeSections(res: SimResult): ReportSection[] {
+  const sm = computeSmoke(res)
+  const ex = exposures(sm)
+  const region = regionById(res.config.areaId)
+  const f = res.series[res.series.length - 1]
+  const last = sm.co2T.length - 1
+  const peakRos = Math.max(...res.series.map((p) => p.rosMh))
+
+  // --- emissions ---
+  const worstCo = ex.reduce((a, b) => (b.peakCoPpm > a.peakCoPpm ? b : a), ex[0])
+  const worstCoName = worstCo ? region.settlements.find((s) => s.id === worstCo.id)?.name : null
+  const emissions: ReportSection = {
+    title: 'Emisyonlar: CO₂, CO ve duman',
+    lines: [
+      `Yaklaşık ${n0(sm.biomassT[last])} t kuru biyokütle yandı. Salım: ${n0(sm.co2T[last])} t CO₂, ${n0(sm.coT[last])} t CO, ${n0(sm.pmT[last])} t PM2.5 (emisyon faktörleri Andreae ve Merlet 2001, yaklaşık).`,
+      `Bu CO₂, yaklaşık ${n0(sm.co2T[last] / CAR_T_PER_YEAR)} otomobilin bir yıllık salımına denk (otomobil başına ~4,6 t/yıl, ABD EPA).`,
+      'CO₂ yerleşimlerde sağlığı etkileyecek yoğunluğa ulaşmaz; etkisi iklim üzerindendir. Yakın çevrede asıl sağlık riski ince partikül (PM2.5) ve karbonmonoksittir.',
+      worstCo && worstCoName
+        ? worstCo.peakCoPpm > 9
+          ? `Yerleşimlerde en yüksek CO ${worstCo.peakCoPpm.toFixed(1)} ppm (${worstCoName}). Bu, 8 saatlik 9 ppm sınırının üstünde: baş ağrısı, baş dönmesi ve kalp hastalarında göğüs ağrısı görülebilir.`
+          : `Yerleşimlerde en yüksek CO ${worstCo.peakCoPpm.toFixed(1)} ppm (${worstCoName}); 8 saatlik 9 ppm sınırının altında. CO, asıl olarak yangın hattında çalışan ekipler için risk oluşturur.`
+        : 'Çalışma alanında yerleşim yok.',
+    ],
+  }
+
+  // --- people ---
+  const hit = ex
+    .map((e, i) => ({ e, st: region.settlements[i] }))
+    .filter(({ e }) => e.firstSensitiveStep !== null)
+    .sort((a, b) => a.e.firstSensitiveStep! - b.e.firstSensitiveStep!)
+  const worst = hit.reduce((m, { e }) => Math.max(m, e.peakPm), 0)
+  const people: ReportSection = {
+    title: 'Dumanın insanlara etkisi',
+    lines: hit.length
+      ? [
+          ...hit.map(({ e, st }) => {
+            const peak = aqiOf(e.peakPm)
+            return `${st.name} (${n0(st.population)} kişi): duman ${T(e.firstSensitiveStep! * STEP_MIN)} anında hassas gruplar için sağlıksız düzeye çıkıyor; tepe ${n0(e.peakPm)} µg/m³ PM2.5 (${peak.name}, ${T(e.peakStep * STEP_MIN)}). ${e.hoursUnhealthy.toFixed(1)} saat "sağlıksız" ve üstünde kalıyor${e.ongoing ? '; simülasyon sonunda duman hâlâ yoğun' : ''}.`
+          }),
+          worst > 55.4
+            ? 'Etki: göz, burun ve boğaz tahrişi, öksürük, nefes darlığı; astım ve KOAH ataklarında, kalp krizi ve inme riskinde artış. En hassas olanlar çocuklar, 65 yaş üstü, hamileler, kalp ve akciğer hastalarıdır.'
+            : 'Etki: hassas gruplarda (astım, KOAH, kalp hastaları, çocuklar, yaşlılar, hamileler) öksürük ve nefes darlığı; diğerlerinde hafif tahriş.',
+          'Öneri: kapı ve pencereler kapalı, mümkünse HEPA filtreli bir oda; dışarıda N95/FFP2 maske (bez ve cerrahi maske korumaz). Duman "çok sağlıksız" düzeye çıkan yerlerde hassas grupların geçici olarak bölgeden çıkarılması değerlendirilmeli.',
+          "Ne kadar sürer: duman, yangın yandıkça ve rüzgar yerleşime doğru estikçe sürer. Gece karışım yüksekliği ~400 m'ye indiği için yoğunluk geceleri artar. Belirtilerin çoğu duman dağıldıktan sonra birkaç günde geçer; hassas gruplarda ve uzun maruziyette haftalarca sürebilir (genel bilgi).",
+        ]
+      : ['Hiçbir yerleşimde duman hassas gruplar için sağlıksız düzeye (35,5 µg/m³ PM2.5) çıkmıyor.'],
+  }
+  people.lines.push('Kategoriler ABD EPA PM2.5 hava kalitesi endeksinden alındı; endeks 24 saatlik ortalama içindir, burada saatlik değerlere uygulandı. Duman modeli tarama amaçlıdır; ölçüm yerine geçmez.')
+
+  // --- wildlife ---
+  const sp = SPECIES[res.config.areaId]
+  const month = res.config.weather ? Number(res.config.weather.startIso.slice(5, 7)) : null
+  const speciesLine = sp
+    ? `GBIF kayıtlarına göre bu alanda ${sp.classes.map((c) => `${c.species} ${CLASS_TR[c.key]}`).join(', ')} türü gözlenmiş (gözlem kaydıdır, hayvan sayısı değildir).`
+    : 'Bu alan için tür kaydı yok.'
+  const notable = sp
+    ? sp.classes
+        .filter((c) => c.top.length)
+        .map((c) => `${CLASS_TR[c.key]}: ${c.top.slice(0, 3).map((t) => `${t.name ?? t.scientific} (${t.scientific}${t.iucn && t.iucn !== 'NE' ? `, IUCN ${t.iucn}` : ''})`).join(', ')}`)
+        .join('; ')
+    : ''
+  const wildlife: ReportSection = {
+    title: 'Yaban hayatına etkisi',
+    lines: [
+      `Yanan yaşam alanı: ${n0(f.forestHa)} ha orman ve maki (${n0(f.pineHa)} ha çam ormanı), ${n0(f.sparseHa)} ha açık ve tarım alanı.`,
+      speciesLine,
+      ...(notable ? [`En sık kaydedilenler — ${notable}.`] : []),
+      `Yangın cephesi en hızlı ~${(peakRos / 1000).toFixed(1)} km/sa ilerliyor. Kuşlar ve yaban domuzu, tilki gibi büyük memeliler çoğunlukla kaçabilir; kara kaplumbağaları, sürüngenlerin bir kısmı, amfibiler, yuvadaki yavrular ve böcekler kaçamaz. Toprağa gömülen türlerin bir kısmı hayatta kalır.`,
+      month
+        ? month >= 3 && month <= 7
+          ? `Yangın ${MONTHS[month - 1]} ayında: kuşların üreme dönemi, yuvalar ve yavrular kaybolur.`
+          : `Yangın ${MONTHS[month - 1]} ayında: üreme dönemi dışında, yuva kaybı daha sınırlı.`
+        : 'Mart–Temmuz arasındaki bir yangında kuş yuvaları ve yavrular da kaybolur.',
+      'Duman kuşları özellikle etkiler (solunum sistemleri hassastır); kaçan hayvanlar dumanda yönünü kaybedebilir ve yollara çıkabilir.',
+      'Ne kadar sürer (genel literatür, yaklaşık): maki örtüsü 3–7 yılda geri gelir. Kızılçam yangından sonra tohumla kendiliğinden yenilenir; kapalı orman örtüsü 20–30 yıl sürer. Açık alan kuşları ilk yıllarda artar; orman türleri ve yaşlı ağaç kovuklarına bağlı türler onlarca yıl etkilenir. Yangından sonraki ilk kış erozyon ve sel riski en yüksektir.',
+    ],
+  }
+  return [emissions, people, wildlife]
 }
 
 export function reportMarkdown(name: string, res: SimResult): string {

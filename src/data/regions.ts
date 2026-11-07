@@ -1,5 +1,6 @@
 import type { LatLon } from '../sim/geo'
 import type { Settlement, SimConfig } from '../sim/types'
+import { OSM } from './osm.generated'
 
 export interface SampleWeather {
   temperatureC: number
@@ -25,13 +26,8 @@ export interface Region {
   note: string
 }
 
-const s = (id: string, name: string, pos: LatLon, population: number, radiusM: number): Settlement => ({
-  id,
-  name,
-  pos,
-  population,
-  radiusM,
-})
+/** Settlements baked from OpenStreetMap (scripts/bake-osm.ts): real place nodes inside the grid. */
+const osmSettlements = (id: string): Settlement[] => OSM[id]?.settlements ?? []
 
 export const REGIONS: Region[] = [
   {
@@ -45,13 +41,7 @@ export const REGIONS: Region[] = [
     defaultIgnition: [36.891, 28.198],
     weather: { temperatureC: 33, humidityPct: 26, windSpeedKmh: 28, windFromDeg: 315, precipMmH: 0 },
     note: 'Marmaris koyunun ardındaki çam ve maki kaplı tepeler; kurak yazlar ve öğleden sonra esen karayel.',
-    settlements: [
-      s('marmaris', 'Marmaris', [36.8545, 28.273], 35000, 1300),
-      s('armutalan', 'Armutalan', [36.8815, 28.2605], 4200, 600),
-      s('siteler', 'Siteler', [36.892, 28.298], 2500, 450),
-      s('beldibi', 'Beldibi', [36.8655, 28.2125], 1100, 380),
-      s('icmeler', 'İçmeler', [36.8195, 28.2375], 6500, 650),
-    ],
+    settlements: osmSettlements('mugla'),
   },
   {
     id: 'izmir',
@@ -64,12 +54,7 @@ export const REGIONS: Region[] = [
     defaultIgnition: [38.245, 26.77],
     weather: { temperatureC: 35, humidityPct: 22, windSpeedKmh: 24, windFromDeg: 20, precipMmH: 0 },
     note: "İzmir'in batısında, karışık çam ve maki örtülü Ege tepeleri.",
-    settlements: [
-      s('seferihisar', 'Seferihisar', [38.196, 26.838], 18000, 800),
-      s('orhanli', 'Orhanlı', [38.255, 26.835], 3200, 450),
-      s('ulamis', 'Ulamış', [38.205, 26.765], 2100, 380),
-      s('akarca', 'Akarca', [38.268, 26.765], 1500, 330),
-    ],
+    settlements: osmSettlements('izmir'),
   },
   {
     id: 'antalya',
@@ -82,12 +67,7 @@ export const REGIONS: Region[] = [
     defaultIgnition: [36.60, 30.50],
     weather: { temperatureC: 36, humidityPct: 24, windSpeedKmh: 22, windFromDeg: 270, precipMmH: 0 },
     note: 'Kemer kıyısının üzerindeki Toros etekleri; dik yamaçlar ve reçineli çam.',
-    settlements: [
-      s('kemer', 'Kemer', [36.598, 30.56], 12000, 800),
-      s('camyuva', 'Çamyuva', [36.555, 30.578], 2400, 420),
-      s('goynuk', 'Göynük', [36.625, 30.545], 3000, 450),
-      s('tekirova', 'Tekirova', [36.535, 30.555], 1800, 380),
-    ],
+    settlements: osmSettlements('antalya'),
   },
   {
     id: 'canakkale',
@@ -100,12 +80,7 @@ export const REGIONS: Region[] = [
     defaultIgnition: [39.965, 26.52],
     weather: { temperatureC: 30, humidityPct: 34, windSpeedKmh: 30, windFromDeg: 45, precipMmH: 0 },
     note: 'Biga yarımadasında çam ormanları; yazın kuvvetli poyraz.',
-    settlements: [
-      s('ezine', 'Ezine', [39.785, 26.34], 9000, 600),
-      s('bayramic', 'Bayramiç', [39.81, 26.61], 12000, 700),
-      s('kalkim', 'Kalkım', [39.98, 26.62], 1200, 330),
-      s('kirazli', 'Kirazlı', [39.93, 26.46], 900, 300),
-    ],
+    settlements: osmSettlements('canakkale'),
   },
   {
     id: 'balikesir',
@@ -118,12 +93,7 @@ export const REGIONS: Region[] = [
     defaultIgnition: [39.59, 26.97],
     weather: { temperatureC: 32, humidityPct: 29, windSpeedKmh: 26, windFromDeg: 0, precipMmH: 0 },
     note: 'Edremit körfezi yakınında Kaz Dağları etekleri; dik arazi ve yoğun çam.',
-    settlements: [
-      s('edremit', 'Edremit', [39.596, 27.025], 50000, 1100),
-      s('zeytinli', 'Zeytinli', [39.553, 26.99], 1800, 380),
-      s('altinoluk', 'Altınoluk', [39.57, 26.74], 7000, 600),
-      s('akcay', 'Akçay', [39.57, 26.93], 6000, 560),
-    ],
+    settlements: osmSettlements('balikesir'),
   },
 ]
 

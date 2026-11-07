@@ -3,7 +3,11 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { Layers } from 'lucide-react'
-import type { Grid, SimResult } from '../sim/types'
+import type { Grid, SimConfig, SimResult } from '../sim/types'
+import { WindParticleLayer } from './WindParticleLayer'
+import { SmokeLayer } from './SmokeLayer'
+import { aqiOf, computeSmoke, pmAt } from '../sim/smoke'
+import { weatherAt } from '../sim/weather'
 import { FireCanvasLayer, type CellInfo, type FireMode } from './FireCanvasLayer'
 import { gridBounds } from '../sim/terrain'
 import { compass } from '../sim/geo'
@@ -69,6 +73,45 @@ function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; r
   return null
 }
 
+function WindLayerBridge({ grid, wind }: { grid: Grid; wind: { config: SimConfig; minutes: number } }) {
+  const map = useMap()
+  const layer = useRef<WindParticleLayer | null>(null)
+  useEffect(() => {
+    const l = new WindParticleLayer()
+    l.addTo(map)
+    layer.current = l
+    return () => {
+      l.remove()
+      layer.current = null
+    }
+  }, [map])
+  useEffect(() => {
+    layer.current?.setField(grid, wind.config, wind.minutes)
+  })
+  return null
+}
+
+function SmokeLayerBridge({ smoke }: { smoke: { result: SimResult; step: number } }) {
+  const map = useMap()
+  const layer = useRef<SmokeLayer | null>(null)
+  useEffect(() => {
+    const l = new SmokeLayer()
+    l.addTo(map)
+    layer.current = l
+    return () => {
+      l.remove()
+      layer.current = null
+    }
+  }, [map])
+  useEffect(() => {
+    const res = smoke.result
+    const w = weatherAt(res.config, smoke.step * res.stepMin)
+    const to = ((w.windFromDeg + 180) * Math.PI) / 180
+    layer.current?.setState(computeSmoke(res), smoke.step, [w.windSpeedKmh * Math.sin(to), w.windSpeedKmh * Math.cos(to)])
+  })
+  return null
+}
+
 export interface MapStageProps {
   grid?: Grid | null
   result?: SimResult | null
@@ -86,6 +129,10 @@ export interface MapStageProps {
   legend?: ReactNode
   controls?: ReactNode
   hud?: boolean
+  /** Animated smoke of this result at this step. */
+  smoke?: { result: SimResult; step: number } | null
+  /** Animated wind streaks for this scenario at this minute of the run. */
+  wind?: { config: SimConfig; minutes: number } | null
   compact?: boolean
   children?: ReactNode
   className?: string
@@ -100,7 +147,7 @@ export function MapStage(p: MapStageProps) {
   return (
     <div className={`relative h-full w-full ${p.className ?? ''}`}>
       <MapContainer center={p.center ?? [38.5, 32]} zoom={p.zoom ?? 6} minZoom={p.minZoom ?? 5} zoomControl={!p.compact} className="h-full w-full" preferCanvas>
-        <TileLayer key={base} url={BASEMAPS[base].url} attribution={`${BASEMAPS[base].attr} · Arazi örtüsü &copy; ESA WorldCover (CC BY 4.0)`} maxZoom={17} />
+        <TileLayer key={base} url={BASEMAPS[base].url} attribution={`${BASEMAPS[base].attr} · Arazi örtüsü &copy; ESA WorldCover (CC BY 4.0) · Yükselti &copy; Copernicus DEM · Yollar ve yerleşimler &copy; OpenStreetMap (ODbL) · Hava &copy; Open-Meteo (CC BY 4.0)`} maxZoom={17} />
         <FitTo bounds={bounds} center={p.center} zoom={p.zoom} fitKey={p.fitKey} />
         <Clicks onClick={p.onMapClick} pick={!!p.pick} />
         {grid && (
@@ -115,6 +162,8 @@ export function MapStage(p: MapStageProps) {
             onHover={setHover}
           />
         )}
+        {p.smoke && <SmokeLayerBridge smoke={p.smoke} />}
+        {grid && p.wind && <WindLayerBridge grid={grid} wind={p.wind} />}
         {p.children}
       </MapContainer>
 
@@ -145,10 +194,14 @@ export function MapStage(p: MapStageProps) {
                   Rakım {Math.round(hover.elev)} m · yakıt {Math.round(hover.veg * 100)}%
                 </div>
               )}
+              {p.smoke && (() => {
+                const pm = pmAt(computeSmoke(p.smoke.result), p.smoke.step, hover.lat, hover.lon)
+                return pm >= 1 ? <div style={{ color: aqiOf(pm).color }}>PM2.5 {Math.round(pm)} µg/m³ · {aqiOf(pm).name}</div> : null
+              })()}
               {hover.igniteMin !== null && <div className="text-amber">Yanma başlangıcı: T+{Math.floor(hover.igniteMin / 60)}sa {String(hover.igniteMin % 60).padStart(2, '0')}dk</div>}
             </>
           ) : (
-            <div className="text-muted">Arazi, yakıt ve yanma zamanını görmek için imleci haritada gezdirin</div>
+            <div className="text-muted">Arazi, yakıt, yanma zamanı ve duman için imleci haritada gezdirin</div>
           )}
         </div>
       )}

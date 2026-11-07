@@ -2,6 +2,7 @@ import type { LatLon } from '../sim/geo'
 import { polylineLengthM } from '../sim/geo'
 import { hash3 } from '../sim/rng'
 import type { Region } from './regions'
+import { OSM } from './osm.generated'
 
 export type NodeKind = 'settlement' | 'junction' | 'station' | 'access' | 'safe'
 export type RoadType = 'highway' | 'road' | 'forest'
@@ -47,58 +48,26 @@ function edge(nodes: NetNode[], id: string, name: string, type: RoadType, from: 
   return { id, name, type, from, to, geom, lengthM: polylineLengthM(geom) }
 }
 
-/** Hand-authored sample network for the Marmaris demo. Positions are approximate and for illustration only. */
-function marmarisInfrastructure(): Infrastructure {
-  const nodes: NetNode[] = [
-    node('marmaris', 'Marmaris', [36.8545, 28.273], 'settlement'),
-    node('armutalan', 'Armutalan', [36.8815, 28.2605], 'settlement'),
-    node('siteler', 'Siteler', [36.892, 28.298], 'settlement'),
-    node('beldibi', 'Beldibi', [36.8655, 28.2125], 'settlement'),
-    node('icmeler', 'İçmeler', [36.8195, 28.2375], 'settlement'),
-    node('st_marmaris', 'Marmaris İtfaiye İstasyonu', [36.856, 28.265], 'station'),
-    node('st_armutalan', 'Armutalan İtfaiye İstasyonu', [36.885, 28.27], 'station'),
-    node('st_ogm', 'Orman İşletme Marmaris Şefliği', [36.87, 28.305], 'station'),
-    node('st_icmeler', 'İçmeler Yangın Noktası', [36.824, 28.24], 'station'),
-    node('gate1', 'Beldibi orman girişi', [36.8855, 28.2155], 'access'),
-    node('gate2', 'Kuzey orman girişi', [36.8995, 28.27], 'access'),
-    node('ridge', 'Sırt kavşağı', [36.884, 28.236], 'access'),
-    node('d400n', 'D400 kuzey kavşağı', [36.905, 28.248], 'access'),
-    node('safe_marmaris', 'Marmaris sahil toplanma alanı', [36.8505, 28.279], 'safe'),
-    node('safe_icmeler', 'İçmeler plaj toplanma alanı', [36.8165, 28.2425], 'safe'),
-  ]
-  const e = (...a: Parameters<typeof edge> extends [unknown, ...infer R] ? R : never) => edge(nodes, ...(a as [string, string, RoadType, string, string, LatLon[]?]))
-  const edges: NetEdge[] = [
-    e('d400-a', 'D400 Muğla yolu', 'highway', 'd400n', 'armutalan', [[36.895, 28.254]]),
-    e('d400-b', 'D400 Muğla yolu', 'highway', 'armutalan', 'marmaris', [[36.871, 28.267]]),
-    e('beldibi-rd', 'Beldibi yolu', 'road', 'marmaris', 'beldibi', [[36.86, 28.245], [36.863, 28.228]]),
-    e('forest-a', 'Beldibi orman yolu', 'forest', 'beldibi', 'gate1', [[36.872, 28.213]]),
-    e('forest-b', 'Sırt orman yolu', 'forest', 'gate1', 'ridge', [[36.885, 28.225]]),
-    e('ridge-a', 'Sırt yolu', 'forest', 'ridge', 'armutalan', [[36.883, 28.248]]),
-    e('ridge-b', 'Sırt yolu', 'forest', 'ridge', 'd400n', [[36.895, 28.24]]),
-    e('coast', 'Sahil yolu', 'highway', 'marmaris', 'icmeler', [[36.847, 28.26], [36.835, 28.248]]),
-    e('inland', 'İçmeler iç yolu', 'road', 'beldibi', 'icmeler', [[36.85, 28.213], [36.83, 28.225]]),
-    e('siteler-a', 'Siteler yolu', 'road', 'marmaris', 'siteler', [[36.862, 28.285], [36.878, 28.293]]),
-    e('siteler-b', 'Kuzey orman yolu', 'forest', 'siteler', 'gate2', [[36.896, 28.285]]),
-    e('siteler-c', 'Kuzey orman yolu', 'forest', 'gate2', 'd400n', [[36.904, 28.26]]),
-    e('st1', 'İstasyon bağlantısı', 'road', 'st_marmaris', 'marmaris'),
-    e('st2', 'İstasyon bağlantısı', 'road', 'st_armutalan', 'armutalan'),
-    e('st3', 'Orman işletme yolu', 'road', 'st_ogm', 'siteler', [[36.88, 28.3]]),
-    e('st3b', 'Orman işletme yolu', 'road', 'st_ogm', 'marmaris', [[36.862, 28.29]]),
-    e('st4', 'İstasyon bağlantısı', 'road', 'st_icmeler', 'icmeler'),
-    e('safe1', 'Sahil kordonu', 'road', 'marmaris', 'safe_marmaris'),
-    e('safe2', 'Plaj yolu', 'road', 'icmeler', 'safe_icmeler'),
-  ]
-  const water: WaterSource[] = [
-    { id: 'w1', name: 'Marmaris Koyu (deniz alımı)', pos: [36.839, 28.285], kind: 'sea', note: 'Sınırsız – helikopter ve tekne ile su alımı' },
-    { id: 'w2', name: 'Armutalan göleti', pos: [36.8905, 28.2475], kind: 'reservoir', note: 'Örnek: ~4.000 m³ depolama tankı' },
-    { id: 'w3', name: 'Beldibi kaynak havuzu', pos: [36.876, 28.23], kind: 'pond', note: 'Örnek: mevsimlik, helikopterle erişilebilir' },
-    { id: 'w4', name: 'İçmeler dere havuzu', pos: [36.828, 28.2175], kind: 'stream', note: 'Örnek: yazın düşük debi' },
-    { id: 'w5', name: 'Siteler yangın tankı', pos: [36.894, 28.3], kind: 'reservoir', note: 'Örnek: ~1.200 m³ beton tank' },
-  ]
-  return { nodes, edges, water }
+/** Real network baked from OpenStreetMap (scripts/bake-osm.ts). */
+function bakedInfrastructure(regionId: string): Infrastructure | null {
+  const b = OSM[regionId]
+  if (!b) return null
+  const edges = b.edges.map((e) => ({ ...e, lengthM: polylineLengthM(e.geom) }))
+  // Name each junction after the most important named road through it, e.g. "D400 kavşağı".
+  const RANK = { highway: 0, road: 1, forest: 2 }
+  const best = new Map<string, NetEdge>()
+  for (const e of edges) {
+    if (e.name.startsWith('İsimsiz') || e.name.endsWith('bağlantısı')) continue
+    for (const v of [e.from, e.to]) {
+      const cur = best.get(v)
+      if (!cur || RANK[e.type] < RANK[cur.type]) best.set(v, e)
+    }
+  }
+  const nodes = b.nodes.map((n) => (n.kind === 'junction' && best.has(n.id) ? { ...n, name: `${best.get(n.id)!.name} kavşağı` } : n))
+  return { nodes, edges, water: b.water }
 }
 
-/** Procedural sample network for the other regions: hub-and-spoke roads with gentle wiggles. */
+/** Procedural fallback network for regions without baked OSM data: hub-and-spoke roads with gentle wiggles. */
 function proceduralInfrastructure(region: Region): Infrastructure {
   const sts = [...region.settlements].sort((a, b) => b.population - a.population)
   const hub = sts[0]
@@ -155,7 +124,7 @@ const cache = new Map<string, Infrastructure>()
 export function getInfrastructure(region: Region): Infrastructure {
   let v = cache.get(region.id)
   if (!v) {
-    v = region.id === 'mugla' ? marmarisInfrastructure() : proceduralInfrastructure(region)
+    v = bakedInfrastructure(region.id) ?? proceduralInfrastructure(region)
     cache.set(region.id, v)
   }
   return v

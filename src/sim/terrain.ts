@@ -2,15 +2,16 @@ import { fbm } from './rng'
 import type { Grid, Settlement } from './types'
 import { haversineM } from './geo'
 import { LANDCOVER } from '../data/landcover.generated'
+import { ELEVATION } from '../data/elevation.generated'
 
 export const GRID_COLS = 130
 export const GRID_ROWS = 100
 export const CELL_M = 110
 
 /**
- * Builds a synthetic but reproducible landscape (elevation, vegetation, land cover) around a centre point.
- * This is illustrative terrain, not surveyed DEM or land-cover data.
- * Later this can be swapped for Copernicus DEM + CORINE rasters sampled into the same Grid shape.
+ * Builds the landscape grid (elevation, vegetation, land cover) around a centre point.
+ * Land cover comes from ESA WorldCover and elevation from Copernicus DEM GLO-30 when they have been baked for the
+ * area (scripts/bake-landcover.ts, scripts/bake-dem.ts); otherwise a synthetic, reproducible landscape is used.
  */
 export function buildGrid(areaId: string, center: [number, number], seed: number, settlements: Settlement[]): Grid {
   const cols = GRID_COLS
@@ -27,6 +28,7 @@ export function buildGrid(areaId: string, center: [number, number], seed: number
 
   // Real land cover (ESA WorldCover, baked by scripts/bake-landcover.ts) when available; synthetic cover otherwise.
   const baked = decodeLandcover(areaId, n)
+  const dem = decodeElevation(areaId, n)
 
   // Marmaris bay (only for the demo area) – an ellipse of open water north of the southern coast.
   const bay = areaId === 'mugla' ? { lat: 36.835, lon: 28.285, rx: 2300, ry: 1500 } : null
@@ -38,7 +40,7 @@ export function buildGrid(areaId: string, center: [number, number], seed: number
       const ridge = 1 - Math.abs(2 * fbm(x * 0.022 + 50, y * 0.022 + 50, seed + 7, 3) - 1)
       const northBias = (1 - y / rows) * 0.38
       const eNorm = Math.min(1, Math.max(0, 0.45 * base + 0.28 * ridge + northBias - 0.1))
-      elev[i] = 15 + eNorm * 920
+      elev[i] = dem ? dem[i] : 15 + eNorm * 920
 
       let v = 0.2 + 1.1 * (fbm(x * 0.06, y * 0.06, seed + 31, 3) - 0.35)
       v += 0.18 * (1 - Math.abs(eNorm - 0.55) * 2)
@@ -87,6 +89,16 @@ export function buildGrid(areaId: string, center: [number, number], seed: number
     }
   }
   return { areaId, cols, rows, cellM: CELL_M, lat0, lon0, dLat, dLon, elev, veg, kind }
+}
+
+function decodeElevation(areaId: string, n: number): Int16Array | null {
+  const b64 = ELEVATION[areaId]
+  if (!b64) return null
+  const bin = atob(b64)
+  if (bin.length !== n * 2) return null
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new Int16Array(bytes.buffer) // little-endian, as written by the bake script
 }
 
 function decodeLandcover(areaId: string, n: number): Uint8Array | null {

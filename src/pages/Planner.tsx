@@ -174,6 +174,9 @@ export function Planner() {
             {layers.stations && infra.nodes.filter((n) => n.kind === 'station').map((n) => (
               <Marker key={n.id} position={n.pos} icon={icons.station}><Tooltip direction="top" offset={[0, -10]}>{n.name}{primary?.from.id === n.id ? ' (birincil sevk)' : alt?.from.id === n.id ? ' (alternatif sevk)' : ''}</Tooltip></Marker>
             ))}
+            {layers.access && plan.target.kind !== 'access' && (
+              <Marker position={plan.target.pos} icon={icons.access}><Tooltip direction="top" offset={[0, -10]}>Erişim noktası: {plan.target.name} (toplanma hedefi)</Tooltip></Marker>
+            )}
             {layers.access && infra.nodes.filter((n) => n.kind === 'access').map((n) => (
               <Marker key={n.id} position={n.pos} icon={icons.access}><Tooltip direction="top" offset={[0, -10]}>Erişim noktası: {n.name}{n.id === plan.target.id ? ' (toplanma hedefi)' : ''}</Tooltip></Marker>
             ))}

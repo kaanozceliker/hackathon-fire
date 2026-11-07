@@ -1,6 +1,7 @@
 import { hash3 } from './rng'
 import { cellCenter, cellOf } from './terrain'
 import { haversineM } from './geo'
+import { cellWeather, type CellWeather } from './weather'
 import type { Grid, SettlementImpact, SimConfig, SimResult, Settlement, StepStat } from './types'
 
 /**
@@ -8,6 +9,7 @@ import type { Grid, SettlementImpact, SimConfig, SimResult, Settlement, StepStat
  *
  * - 8-neighbour Moore neighbourhood, 10 minute time step, 110 m cells.
  * - Ignition probability per burning neighbour = base × wind × slope × humidity × temperature × rain × fuel.
+ * - Weather may change every hour and vary across the grid (config.weather); otherwise the fixed values apply.
  * - Long-range ember spotting downwind when wind is strong.
  * - Burned cells never reignite. All randomness is hashed from (seed, cell, step) so a scenario is reproducible.
  *
@@ -82,28 +84,41 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
   const fuel = new Float32Array(n)
   for (let i = 0; i < n; i++) fuel[i] = fuelOf(grid, i, config.fuelLoad)
 
-  // --- environment factors (constant over the run) ---
-  const ws = config.windSpeedKmh
-  const windTo = (((config.windFromDeg + 180) % 360) * Math.PI) / 180
-  const dryness = clamp((100 - config.humidityPct) / 100, 0, 1)
-  const humFactor = 0.25 + 1.5 * Math.pow(dryness, 1.5)
-  const tempFactor = clamp(0.6 + 0.025 * (config.temperatureC - 15), 0.45, 1.6)
-  const rainFactor = 1 / (1 + 1.4 * config.precipMmH)
+  // --- environment factors: per cell, recomputed whenever the run enters a new hour ---
   const slopeMult = TERRAIN_SLOPE_MULT[config.terrain]
   const inten = INTENSITY[config.intensity]
   const BASE = 0.22
-  const common = BASE * humFactor * tempFactor * rainFactor * inten.mult
-
-  // pre-compute wind factor per neighbour offset
-  const windF = NEIGHBOURS.map(([dx, dy]) => {
-    const bearing = Math.atan2(dx, -dy) // radians clockwise from north (row increases to the south)
-    return Math.exp(0.045 * ws * Math.cos(bearing - windTo))
-  })
   const dist = NEIGHBOURS.map(([dx, dy]) => (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1))
-
-  const spotRate = ws > 14 ? 0.0028 * Math.pow((ws - 10) / 10, 1.5) * (0.4 + dryness) : 0
-  const spotDx = Math.sin(windTo)
-  const spotDy = -Math.cos(windTo)
+  const bearing = NEIGHBOURS.map(([dx, dy]) => Math.atan2(dx, -dy)) // radians clockwise from north (rows run south)
+  const common = new Float32Array(n)
+  const spotRate = new Float32Array(n)
+  const windCache = new Float32Array(n * 8) // 0 = not computed yet for this hour
+  let wx: CellWeather = cellWeather(grid, config, 0)
+  let hourNow = -1
+  const enterHour = (h: number) => {
+    if (h === hourNow) return
+    hourNow = h
+    wx = cellWeather(grid, config, h)
+    windCache.fill(0)
+    for (let i = 0; i < n; i++) {
+      const dryness = clamp((100 - wx.humidityPct[i]) / 100, 0, 1)
+      const humFactor = 0.25 + 1.5 * Math.pow(dryness, 1.5)
+      const tempFactor = clamp(0.6 + 0.025 * (wx.temperatureC[i] - 15), 0.45, 1.6)
+      const rainFactor = 1 / (1 + 1.4 * wx.precipMmH[i])
+      common[i] = BASE * humFactor * tempFactor * rainFactor * inten.mult
+      const ws = wx.windSpeedKmh[i]
+      spotRate[i] = ws > 14 ? 0.0028 * Math.pow((ws - 10) / 10, 1.5) * (0.4 + dryness) : 0
+    }
+  }
+  const windF = (c: number, k: number) => {
+    let v = windCache[c * 8 + k]
+    if (v === 0) {
+      v = Math.exp(0.045 * wx.windSpeedKmh[c] * Math.cos(bearing[k] - wx.windToRad[c]))
+      windCache[c * 8 + k] = v
+    }
+    return v
+  }
+  enterHour(0)
 
   // --- initial ignition ---
   let burning: number[] = []
@@ -122,6 +137,7 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
     }
 
   for (let s = 0; s < steps; s++) {
+    enterHour(Math.floor((s * STEP_MIN) / 60))
     const next: number[] = []
     const stillBurning: number[] = []
     for (const c of burning) {
@@ -139,7 +155,7 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         if (f <= 0) continue
         const g = ((grid.elev[j] - grid.elev[c]) / (cellM * dist[k])) * slopeMult
         const slopeF = Math.exp(clamp(g * 3.2, -1.2, 1.4))
-        const p = Math.min(0.97, (common * windF[k] * slopeF * f * src) / (dist[k] === 1 ? 1 : 1.35))
+        const p = Math.min(0.97, (common[c] * windF(c, k) * slopeF * f * src) / (dist[k] === 1 ? 1 : 1.35))
         if (hash3(seed, c * 8 + k, s) < p) {
           ig[j] = s + 1
           burnout[j] = s + 1 + burnSteps(f, grid.kind[j])
@@ -147,8 +163,10 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         }
       }
       // ember spotting (vegetation fires only)
-      if (spotRate > 0 && src === 1 && hash3(seed + 1, c, s) < spotRate) {
-        const d = 3 + Math.floor(hash3(seed + 2, c, s) * (ws / 5))
+      if (spotRate[c] > 0 && src === 1 && hash3(seed + 1, c, s) < spotRate[c]) {
+        const d = 3 + Math.floor(hash3(seed + 2, c, s) * (wx.windSpeedKmh[c] / 5))
+        const spotDx = Math.sin(wx.windToRad[c])
+        const spotDy = -Math.cos(wx.windToRad[c])
         const ang = (hash3(seed + 3, c, s) - 0.5) * 0.8
         const ca = Math.cos(ang)
         const sa = Math.sin(ang)
@@ -234,6 +252,8 @@ function computeSeries(grid: Grid, ig: Int16Array, burnout: Int16Array, steps: n
     rHist.push(rMax)
     const back = Math.max(0, t - 6)
     const ros = t === 0 ? 0 : ((rMax - rHist[back]) / (((t - back) * STEP_MIN) / 60)) || 0
+    // Direction the front is advancing: cells ignited in the last 3 steps, seen from the centre of everything that
+    // burned before them (not from the ignition point, which would lag behind a wind shift).
     let wx = 0
     let wy = 0
     let wn = 0
@@ -242,7 +262,17 @@ function computeSeries(grid: Grid, ig: Int16Array, burnout: Int16Array, steps: n
       wy += sy[b]
       wn += sn[b]
     }
-    const heading = wn >= 3 ? ((Math.atan2(wx / wn, wy / wn) * 180) / Math.PI + 360) % 360 : null
+    let px = 0
+    let py = 0
+    let pn = 0
+    for (let b = 0; b < Math.max(0, t - 2); b++) {
+      px += sx[b]
+      py += sy[b]
+      pn += sn[b]
+    }
+    const cx0 = pn ? px / pn : 0
+    const cy0 = pn ? py / pn : 0
+    const heading = wn >= 3 ? ((Math.atan2(wx / wn - cx0, wy / wn - cy0) * 180) / Math.PI + 360) % 360 : null
     const total = cum[1] + cum[2] + cum[3] + cum[4]
     out.push({
       step: t,
