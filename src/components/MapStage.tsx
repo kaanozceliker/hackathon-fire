@@ -1,0 +1,166 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import { Layers } from 'lucide-react'
+import type { Grid, SimResult } from '../sim/types'
+import { FireCanvasLayer, type CellInfo, type FireMode } from './FireCanvasLayer'
+import { gridBounds } from '../sim/terrain'
+import { compass } from '../sim/geo'
+
+const BASEMAPS = {
+  dark: {
+    label: 'Koyu',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attr: '&copy; OpenStreetMap contributors &copy; CARTO',
+  },
+  satellite: {
+    label: 'Uydu',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attr: 'Imagery &copy; Esri, Maxar, Earthstar Geographics',
+  },
+} as const
+
+const KIND_LABEL = ['Su', 'Yerleşim', 'Seyrek / tarım', 'Maki çalılığı', 'Çam ormanı']
+
+function FitTo({ bounds, center, zoom, fitKey }: { bounds?: L.LatLngBoundsExpression; center?: [number, number]; zoom?: number; fitKey: string }) {
+  const map = useMap()
+  useEffect(() => {
+    map.invalidateSize()
+    if (bounds) map.fitBounds(bounds, { padding: [24, 24], animate: true })
+    else if (center) map.flyTo(center, zoom ?? 7, { duration: 0.8 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey, map])
+  return null
+}
+
+function Clicks({ onClick, pick }: { onClick?: (lat: number, lon: number) => void; pick: boolean }) {
+  const map = useMap()
+  useEffect(() => {
+    map.getContainer().classList.toggle('fg-pick', pick)
+  }, [map, pick])
+  useMapEvents({ click: (e) => onClick?.(e.latlng.lat, e.latlng.lng) })
+  return null
+}
+
+function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; resultB: SimResult | null; step: number; mode: FireMode; perimeter: boolean; opacity?: number; onHover: (c: CellInfo | null) => void }) {
+  const map = useMap()
+  const layer = useRef<FireCanvasLayer | null>(null)
+  useEffect(() => {
+    const l = new FireCanvasLayer()
+    l.addTo(map)
+    layer.current = l
+    return () => {
+      l.remove()
+      layer.current = null
+    }
+  }, [map])
+  const { onHover } = props
+  useMapEvents({
+    mousemove: (e) => onHover(layer.current?.cellAt(e.latlng) ?? null),
+    mouseout: () => onHover(null),
+  })
+  useEffect(() => {
+    layer.current?.update({ grid: props.grid, result: props.result, resultB: props.resultB, step: props.step, mode: props.mode, perimeter: props.perimeter, opacity: props.opacity })
+  })
+  return null
+}
+
+export interface MapStageProps {
+  grid?: Grid | null
+  result?: SimResult | null
+  resultB?: SimResult | null
+  step?: number
+  mode?: FireMode
+  perimeter?: boolean
+  opacity?: number
+  center?: [number, number]
+  zoom?: number
+  fitGrid?: boolean
+  fitKey: string
+  pick?: boolean
+  onMapClick?: (lat: number, lon: number) => void
+  legend?: ReactNode
+  controls?: ReactNode
+  hud?: boolean
+  compact?: boolean
+  children?: ReactNode
+  className?: string
+  minZoom?: number
+}
+
+export function MapStage(p: MapStageProps) {
+  const [base, setBase] = useState<keyof typeof BASEMAPS>('dark')
+  const [hover, setHover] = useState<CellInfo | null>(null)
+  const grid = p.grid ?? null
+  const bounds = grid && p.fitGrid ? gridBounds(grid) : undefined
+  return (
+    <div className={`relative h-full w-full ${p.className ?? ''}`}>
+      <MapContainer center={p.center ?? [38.5, 32]} zoom={p.zoom ?? 6} minZoom={p.minZoom ?? 5} zoomControl={!p.compact} className="h-full w-full" preferCanvas>
+        <TileLayer key={base} url={BASEMAPS[base].url} attribution={BASEMAPS[base].attr} maxZoom={17} />
+        <FitTo bounds={bounds} center={p.center} zoom={p.zoom} fitKey={p.fitKey} />
+        <Clicks onClick={p.onMapClick} pick={!!p.pick} />
+        {grid && (
+          <FireLayerBridge
+            grid={grid}
+            result={p.result ?? null}
+            resultB={p.resultB ?? null}
+            step={p.step ?? 0}
+            mode={p.mode ?? 'none'}
+            perimeter={p.perimeter ?? true}
+            opacity={p.opacity}
+            onHover={setHover}
+          />
+        )}
+        {p.children}
+      </MapContainer>
+
+      <div className="pointer-events-none absolute right-2 top-2 z-[500] flex flex-col items-end gap-2">
+        <div className="pointer-events-auto flex border border-line2 bg-bg/90 text-[12px]">
+          <span className="flex items-center px-1.5 text-muted"><Layers size={13} /></span>
+          {(Object.keys(BASEMAPS) as (keyof typeof BASEMAPS)[]).map((k) => (
+            <button key={k} onClick={() => setBase(k)} aria-pressed={base === k} className={`px-2 py-1 font-medium ${base === k ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>
+              {BASEMAPS[k].label}
+            </button>
+          ))}
+        </div>
+        {p.controls && <div className="pointer-events-auto">{p.controls}</div>}
+      </div>
+
+      {p.legend && <div className="pointer-events-none absolute bottom-2 left-2 z-[500]"><div className="pointer-events-auto">{p.legend}</div></div>}
+
+      {p.hud && grid && (
+        <div className="pointer-events-none absolute bottom-2 right-2 z-[500] min-w-[170px] border border-line2 bg-bg/90 px-2.5 py-1.5 text-[12px]">
+          {hover ? (
+            <>
+              <div className="font-semibold">{KIND_LABEL[hover.kind]}</div>
+              <div className="text-muted">
+                {hover.lat.toFixed(4)}°K, {hover.lon.toFixed(4)}°D
+              </div>
+              {hover.kind !== 0 && (
+                <div className="text-muted">
+                  Rakım {Math.round(hover.elev)} m · yakıt {Math.round(hover.veg * 100)}%
+                </div>
+              )}
+              {hover.igniteMin !== null && <div className="text-amber">Yanma başlangıcı: T+{Math.floor(hover.igniteMin / 60)}sa {String(hover.igniteMin % 60).padStart(2, '0')}dk</div>}
+            </>
+          ) : (
+            <div className="text-muted">Arazi, yakıt ve yanma zamanını görmek için imleci haritada gezdirin</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function WindArrow({ fromDeg, className = '' }: { fromDeg: number; className?: string }) {
+  // arrow points the way the wind blows (to = from + 180)
+  return (
+    <svg viewBox="-12 -12 24 24" className={className} width="22" height="22" aria-label={`${compass(fromDeg)} yönünden esen rüzgar`}>
+      <g transform={`rotate(${fromDeg + 180})`}>
+        <path d="M0 -9 L5 3 L0 0.5 L-5 3 Z" fill="currentColor" />
+        <path d="M0 0.5 V9" stroke="currentColor" strokeWidth="2" />
+      </g>
+    </svg>
+  )
+}

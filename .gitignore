@@ -1,0 +1,36 @@
+# Bağımlılıklar
+node_modules/
+
+# Build çıktıları
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# Loglar
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Ortam değişkenleri
+.env
+.env.*
+!.env.example
+
+# Editör ve IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.sw?
+
+# İşletim sistemi
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Vite önbelleği
+.vite/
+*.local
