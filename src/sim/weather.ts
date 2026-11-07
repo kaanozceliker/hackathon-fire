@@ -87,9 +87,10 @@ export function cellWeather(grid: Grid, config: SimConfig, hour: number): CellWe
   }
   const w = config.weather
   if (!w) {
-    out.temperatureC.fill(config.temperatureC)
-    out.humidityPct.fill(config.humidityPct)
-    out.windSpeedKmh.fill(config.windSpeedKmh)
+    const d = diurnal(config, hour)
+    out.temperatureC.fill(d.temperatureC)
+    out.humidityPct.fill(d.humidityPct)
+    out.windSpeedKmh.fill(d.windSpeedKmh)
     out.windToRad.fill((((config.windFromDeg + 180) % 360) * Math.PI) / 180)
     out.precipMmH.fill(config.precipMmH)
     return out
@@ -146,9 +147,26 @@ export interface WeatherNow {
 }
 
 /** Weather at the grid centre at a given minute of the run (the fixed values when there is no series). */
+/** Fixed weather start at 13:00 local; the values entered are the afternoon peak (15:00). */
+export const FIXED_START_HOUR = 13
+
+/**
+ * Daily cycle for fixed weather: the entered values hold in the mid-afternoon; towards 03:00 humidity rises by up to
+ * 25 points, temperature falls by up to 9 °C and wind drops to about half. This is why real fires lie down at night.
+ */
+export function diurnal(config: SimConfig, hour: number) {
+  const local = FIXED_START_HOUR + hour
+  const night = (1 - Math.cos((2 * Math.PI * (local - 15)) / 24)) / 2 // 0 at 15:00, 1 at 03:00
+  return {
+    temperatureC: config.temperatureC - 9 * night,
+    humidityPct: Math.min(95, config.humidityPct + 25 * night),
+    windSpeedKmh: config.windSpeedKmh * (1 - 0.45 * night),
+  }
+}
+
 export function weatherAt(config: SimConfig, minutes: number): WeatherNow {
   const w = config.weather
-  if (!w) return { temperatureC: config.temperatureC, humidityPct: config.humidityPct, windSpeedKmh: config.windSpeedKmh, windFromDeg: config.windFromDeg, precipMmH: config.precipMmH }
+  if (!w) return { ...diurnal(config, Math.floor(minutes / 60)), windFromDeg: config.windFromDeg, precipMmH: config.precipMmH }
   const h = clampHour(w, Math.floor(minutes / 60))
   const C = 4
   return {

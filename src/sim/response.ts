@@ -64,7 +64,7 @@ interface Resource {
   pos: LatLon
   status: ResourceStatus
   availableFromStep: number
-  task: { kind: 'line'; lineId: string; sector: number } | { kind: 'attack'; sector: number } | { kind: 'drop'; sector: number } | { kind: 'return' } | null
+  task: { kind: 'line'; lineId: string; sector: number } | { kind: 'attack'; sector: number } | { kind: 'drop'; sector: number } | { kind: 'mopup'; sector: number; patrolFrom: number } | { kind: 'return' } | null
   /** Leftover direct-attack effort carried to the next step. */
   carry: number
   /** Movement: path and the steps it is travelled between. */
@@ -123,6 +123,7 @@ const STATUS_TR: Record<ResourceStatus, string> = {
   unavailable: 'henüz yok',
   idle: 'boşta',
   enroute: 'yolda',
+  mopping: 'soğutmada',
   attacking: 'doğrudan müdahalede',
   building: 'sınır açıyor',
   holding: 'sınırı tutuyor',
@@ -179,6 +180,11 @@ export class ResponseRun {
     const airBase = stations[0]?.pos ?? cellCenter(grid, this.st.origin)
     for (let k = 1; k <= 3; k++) this.addResource(`heli-${k}`, `Helikopter ${k}`, 'heli', airBase, Math.max(6, this.startStep + 3))
     this.addResource('ucak-1', 'Söndürme uçağı 1', 'plane', airBase, Math.max(9, this.startStep + 6))
+    // reinforcements from neighbouring provinces arrive at the nearest station after 3 h and 6 h
+    const reBase = stations[stations.length - 1]?.pos ?? airBase
+    for (let k = 1; k <= 4; k++) this.addResource(`takviye-${k}`, `Takviye arazöz ${k}`, 'crew', reBase, this.startStep + 18)
+    for (let k = 5; k <= 6; k++) this.addResource(`takviye-${k}`, `Takviye arazöz ${k}`, 'crew', reBase, this.startStep + 36)
+    this.addResource('takviye-dozer', 'Takviye iş makinesi', 'dozer', reBase, this.startStep + 36)
     this.wasDaylight = this.daylight(0)
   }
 
@@ -231,8 +237,13 @@ export class ResponseRun {
         if (this.extinguishedStep === null) {
           this.extinguishedStep = this.step
           this.log('out', `Yangın ${T(this.step)} itibarıyla söndü.`)
+          if (this.step >= this.startStep) this.startMopUp()
+          else return { kind: 'end' }
         }
-        return { kind: 'end' }
+        // after mop-up the crews drive home; the run ends when they are back (or after a time limit)
+        const home = this.resources.every((r) => r.status === 'idle' || r.status === 'unavailable' || r.status === 'grounded')
+        if (this.step >= this.mopEndStep && (home || this.step >= this.mopEndStep + 18)) return { kind: 'end' }
+        if (this.step === this.mopEndStep) this.sendHome()
       }
       const due = this.decisionDue()
       if (due) return { kind: 'decision', trigger: due }
@@ -245,7 +256,7 @@ export class ResponseRun {
 
   private decisionDue(): string | null {
     const s = this.step
-    if (s < this.startStep) return null
+    if (s < this.startStep || this.extinguishedStep !== null) return null
     if (this.decisions.length === 0) return 'Müdahale başlıyor: ilk değerlendirme'
     if (s - this.lastDecisionStep < MIN_GAP_STEPS) return null
     if (this.decisions.length >= MAX_DECISIONS && s - this.lastDecisionStep < 18) return null
@@ -317,8 +328,10 @@ export class ResponseRun {
       }
       if (r.status === 'unavailable') r.status = isAir(r.kind) && !day ? 'grounded' : 'idle'
       // movement
-      if (r.status === 'enroute' && r.path) {
+      if ((r.status === 'enroute' || r.status === 'mopping') && r.path) {
         r.pos = this.posAlong(r)
+        // on the perimeter: the patrol part of a mop-up trip
+        if (r.task?.kind === 'mopup' && s >= r.task.patrolFrom) r.status = 'mopping'
         if (s >= r.pathTo) {
           r.pos = r.path[r.path.length - 1]
           r.path = null
@@ -331,6 +344,8 @@ export class ResponseRun {
           } else if (r.task?.kind === 'drop') {
             r.status = 'dropping'
             r.nextDropStep = s
+          } else if (r.task?.kind === 'mopup') {
+            r.status = 'mopping'
           } else {
             r.status = 'idle'
             r.task = null
@@ -548,6 +563,33 @@ export class ResponseRun {
 
   private afterStep() {
     const s = this.step
+    // spot fires: caught while small by crews working nearby or by aircraft over the fire
+    const fresh = this.st.spots.filter((x) => x.step === s)
+    if (fresh.length && s >= this.startStep) {
+      let caught = 0
+      for (const sp of fresh) {
+        const p = cellCenter(this.grid, sp.to)
+        const near = this.resources.some((r) =>
+          isAir(r.kind)
+            ? (r.status === 'dropping' || r.status === 'enroute') && haversineM(r.pos, p) < 6000
+            : ['attacking', 'building', 'holding', 'mopping'].includes(r.status) && haversineM(r.pos, p) < 1500,
+        )
+        if (!near || hash3(this.st.seed + 11, sp.to, s) > 0.85) continue
+        caught++
+        const { cols, rows } = this.grid
+        const cx = sp.to % cols
+        const cy = (sp.to / cols) | 0
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const x = cx + dx
+            const y = cy + dy
+            if (x >= 0 && y >= 0 && x < cols && y < rows) this.st.extinguish(y * cols + x)
+          }
+        this.wetAround(sp.to, 1, 3)
+      }
+      if (caught) this.log('drop', `${caught} sıçrama yangını küçükken yakındaki ekiplerce söndürüldü.`)
+      if (fresh.length > caught) this.log('breach', `${fresh.length - caught} kor sıçraması yakında ekip olmadığı için yeni yangın başlattı.`, fresh.length - caught >= 2)
+    }
     // per-sector front
     for (const c of this.st.burning) {
       if (this.st.ig[c] !== s) continue
@@ -824,6 +866,98 @@ export class ResponseRun {
       case 'hold':
         return 'Mevcut düzen korunuyor.'
     }
+  }
+
+  private mopEndStep = Infinity
+
+  /**
+   * Mop-up after the fire is out: each ground unit takes a sector of the burned area's edge (where embers next to
+   * unburned fuel can rekindle), drives there and patrols along it for four hours; aircraft go back to base.
+   */
+  private startMopUp() {
+    const s = this.step
+    const MOP_STEPS = 24
+    const PATROL_KMH = 2
+    this.mopEndStep = s + MOP_STEPS
+    this.hazards = new Map(buildHazards(this.st.result(this.settlements), this.infra).map((h) => [h.edge.id, h]))
+    const { cols, rows, kind } = this.grid
+    const ig = this.st.ig
+    const edge: number[][] = SECTORS.map(() => [])
+    for (let i = 0; i < ig.length; i++) {
+      if (ig[i] < 0) continue
+      const cx = i % cols
+      const cy = (i / cols) | 0
+      let open = false
+      for (let dy = -1; dy <= 1 && !open; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = cx + dx
+          const y = cy + dy
+          if (x >= 0 && y >= 0 && x < cols && y < rows && ig[y * cols + x] < 0 && kind[y * cols + x] !== 0) { open = true; break }
+        }
+      if (open) edge[this.sectorOfCell(i)].push(i)
+    }
+    const o = this.st.origin
+    const ang = (x: number) => Math.atan2((x % cols) - (o % cols), -(((x / cols) | 0) - ((o / cols) | 0)))
+    edge.forEach((e) => e.sort((a, b) => ang(a) - ang(b)))
+    const sectors = SECTORS.map((_, k) => k).filter((k) => edge[k].length > 0).sort((a, b) => edge[b].length - edge[a].length)
+    const applied: string[] = []
+    let k = 0
+    for (const r of this.resources) {
+      if (r.status === 'unavailable') continue
+      if (isAir(r.kind)) {
+        r.task = { kind: 'return' }
+        r.status = 'enroute'
+        r.path = [r.pos, r.base]
+        r.pathFrom = s
+        r.pathTo = s + Math.max(1, Math.round((haversineM(r.pos, r.base) / 1000 / AIR[r.kind as 'heli' | 'plane'].kmh) * 6))
+        this.recordMove(r)
+        continue
+      }
+      if (!sectors.length) continue
+      const sec = sectors[k++ % sectors.length]
+      const cells = edge[sec].filter((_, i) => i % 3 === 0)
+      const patrol = cells.map((c) => cellCenter(this.grid, c))
+      if (!patrol.length) continue
+      const go = this.drive(r, patrol[0])
+      let km = 0
+      for (let i = 1; i < patrol.length; i++) km += haversineM(patrol[i - 1], patrol[i]) / 1000
+      const patrolSteps = Math.max(1, Math.min(MOP_STEPS, Math.round((km / PATROL_KMH) * 6)))
+      r.task = { kind: 'mopup', sector: sec, patrolFrom: s + go.steps }
+      r.status = 'enroute'
+      r.path = [...go.path, ...patrol.slice(1)]
+      r.pathFrom = s
+      r.pathTo = s + go.steps + patrolSteps
+      this.recordMove(r)
+      applied.push(`${r.name} → ${SECTORS[sec]} sektöründe yanmış alan kenarında soğutma, devriye ${T(s + go.steps)}–${T(Math.min(this.mopEndStep, s + go.steps + patrolSteps))}.`)
+    }
+    applied.push(`Hava araçları üsse dönüyor. Soğutma ${T(this.mopEndStep)}'a kadar sürecek, ardından ekipler istasyonlarına dönecek.`)
+    this.log('line_done', `Söndürme sonrası soğutma başladı: ekipler yanmış alanın çevresinde devriye geziyor.`)
+    this.decisions.push({
+      step: s,
+      trigger: 'Yangın söndü',
+      source: 'rules',
+      output: {
+        assessment: `Aktif alev kalmadı, ancak yanmış alanın kenarında içten için yanan kütükler ve kökler yangını yeniden başlatabilir. Ekipler çevreyi sektörlere bölüp, yanmamış örtüye bitişik kenarlardan başlayarak soğutma yapıyor.`,
+        phase: 'Kontrol ve soğutma',
+        actions: applied.map(() => ({ type: 'hold', candidate: null, line_id: null, sector: null, resource_id: null, settlement_id: null, rationale: 'Yeniden alevlenme riski en çok yanmış alanın dış kenarında.' })),
+      },
+      applied,
+    })
+  }
+
+  /** End of mop-up: ground units drive back to their stations. */
+  private sendHome() {
+    for (const r of this.resources) {
+      if (isAir(r.kind) || r.status === 'unavailable' || r.status === 'idle') continue
+      const go = this.drive(r, r.base)
+      r.task = { kind: 'return' }
+      r.status = 'enroute'
+      r.path = go.path
+      r.pathFrom = this.step
+      r.pathTo = this.step + go.steps
+      this.recordMove(r)
+    }
+    this.log('line_done', 'Soğutma tamamlandı; ekipler istasyonlarına dönüyor.')
   }
 
   /** Keeps the trip just ordered, so playback can move the icon along the road instead of between samples. */

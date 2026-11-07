@@ -112,6 +112,8 @@ export function Studio() {
         { color: '#46181a', label: 'Yanıp söndü' },
         { color: '#ffe9b0', label: 'Yangın çevresi', kind: 'line' },
         { color: '#ffd24a', label: 'Yayılma yönü', kind: 'dash' },
+        { color: '#ffa53a', label: 'Olası kor düşme noktası', kind: 'dot' },
+        { color: '#fff1a6', label: 'Yeni sıçrama (kor)', kind: 'dot' },
       ]} />
     )
 

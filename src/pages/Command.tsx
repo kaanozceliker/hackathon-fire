@@ -3,7 +3,7 @@ import L from 'leaflet'
 import { Marker, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Bot, ChevronDown, ChevronRight, Cpu, Helicopter, Loader2, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Truck } from 'lucide-react'
-import { MapStage } from '../components/MapStage'
+import { MapStage, WindArrow } from '../components/MapStage'
 // the 3D view (MapTiler SDK, ~1.3 MB) loads only when chosen
 const Map3D = lazy(() => import('../components/Map3D').then((m) => ({ default: m.Map3D })))
 import { Legend, Panel, Segmented, SliderField, Stat, fmtHa } from '../components/ui'
@@ -34,6 +34,7 @@ const STATUS: Record<ResourceStatus, { label: string; tone: string }> = {
   unavailable: { label: 'yolda değil', tone: 'text-muted' },
   idle: { label: 'boşta', tone: 'text-muted' },
   enroute: { label: 'yolda', tone: 'text-ink' },
+  mopping: { label: 'soğutmada', tone: 'text-water' },
   attacking: { label: 'söndürüyor', tone: 'text-fire' },
   building: { label: 'sınır açıyor', tone: 'text-amber' },
   holding: { label: 'sınırı tutuyor', tone: 'text-forest' },
@@ -205,6 +206,8 @@ export function Command() {
                   { color: '#ff5a4e', label: 'Aşılan sektör' },
                   { color: 'rgba(120,190,255,.8)', label: 'Su atışı', kind: 'dot' },
                   { color: '#ecf4f0', label: 'Tahliye rotası', kind: 'dash' },
+                  { color: '#ffa53a', label: 'Olası kor düşme noktası', kind: 'dot' },
+                  { color: '#fff1a6', label: 'Yeni sıçrama (kor)', kind: 'dot' },
                 ]} />
               )
             }
@@ -257,6 +260,24 @@ export function Command() {
 
       {/* decision log */}
       <aside className="w-full shrink-0 space-y-3 overflow-auto border-t border-line bg-bg p-3 lg:w-[390px] lg:border-l lg:border-t-0">
+        {live && stat && w && (
+          <Panel title={`Saha durumu · ${Tm(run.headMin)}`}>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+              <div className="min-w-0 border-l-2 border-line2 pl-2.5">
+                <div className="text-[12px] text-muted">Rüzgar</div>
+                <div className="flex items-center gap-1.5 text-[18px] font-semibold leading-tight">
+                  <WindArrow fromDeg={w.windFromDeg} className="text-ink" />
+                  {Math.round(w.windSpeedKmh)}<span className="text-[12px] font-normal text-muted">km/sa {compass(w.windFromDeg)} yönünden</span>
+                </div>
+              </div>
+              <Stat label="Yangının ilerleme yönü" value={stat.headingDeg === null ? '–' : compass(stat.headingDeg)} unit={stat.headingDeg === null ? '' : `${Math.round(stat.headingDeg)}°`} tone="fire" />
+              <Stat label="Cephe hızı" value={Math.round(stat.rosMh).toLocaleString('en-US')} unit="m/sa" hint="En uzak yangın noktasının son bir saatteki ilerlemesi" />
+              <Stat label="Şu an yanan" value={fmtHa(stat.burningHa)} unit="ha" tone="amber" />
+              <Stat label="Nem / sıcaklık" value={`%${Math.round(w.humidityPct)}`} unit={`${Math.round(w.temperatureC)} °C`} />
+              <Stat label="Son 1 saatte sıçrama" value={(live.spots ?? []).filter((x) => x.step <= head && x.step > head - 6).length} unit="kor" tone={w.windSpeedKmh > 14 ? 'amber' : 'ink'} hint="Rüzgarın taşıdığı korların başlattığı yeni yangınlar; 14 km/sa altında kor sıçraması olmaz" />
+            </div>
+          </Panel>
+        )}
         {done && live && rec && (
           <Panel title="Sonuç">
             <p className="text-[13px] leading-snug">

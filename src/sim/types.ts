@@ -97,6 +97,8 @@ export interface SimResult {
   originCell: number
   series: StepStat[]
   impacts: SettlementImpact[]
+  /** Ember spot fires (step, source cell, landing cell). */
+  spots?: { step: number; from: number; to: number }[]
   /** Present when the run was fought by the response commander. */
   response?: ResponseRecord
 }
@@ -108,7 +110,7 @@ export const SECTORS = ['K', 'KD', 'D', 'GD', 'G', 'GB', 'B', 'KB'] as const
 export type Sector = (typeof SECTORS)[number]
 
 export type ResourceKind = 'crew' | 'dozer' | 'heli' | 'plane'
-export type ResourceStatus = 'unavailable' | 'idle' | 'enroute' | 'attacking' | 'building' | 'holding' | 'dropping' | 'retreated' | 'grounded'
+export type ResourceStatus = 'unavailable' | 'idle' | 'enroute' | 'mopping' | 'attacking' | 'building' | 'holding' | 'dropping' | 'retreated' | 'grounded'
 
 export interface CommanderAction {
   type: 'attack' | 'establish_line' | 'assign_line' | 'air_drop' | 'evacuate' | 'withdraw' | 'hold'

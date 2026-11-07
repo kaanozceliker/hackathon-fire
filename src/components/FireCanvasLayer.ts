@@ -1,5 +1,6 @@
 import L from 'leaflet'
 import type { Grid, SimResult } from '../sim/types'
+import { cellWeather } from '../sim/weather'
 
 export type FireMode = 'fire' | 'fuel' | 'arrival' | 'diff' | 'none'
 
@@ -191,6 +192,9 @@ export class FireCanvasLayer extends L.Layer {
       })
     }
 
+    // --- 2b. embers: where they may land next (downwind of the burning edge) and the spot fires they just started ---
+    if (mode === 'fire' && result) this.drawEmbers(ctx, grid, result, step, nw.x, nw.y, cw, ch)
+
     // --- 3. erase whatever bled over open water (fuel mode draws water on purpose) ---
     if (mode !== 'fuel') {
       ctx.globalAlpha = 1
@@ -199,6 +203,80 @@ export class FireCanvasLayer extends L.Layer {
       ctx.drawImage(this.waterMask(grid), 0, 0, cols, rows, nw.x, nw.y, cols * cw, rows * ch)
       ctx.filter = 'none'
       ctx.globalCompositeOperation = 'source-over'
+    }
+    ctx.globalAlpha = 1
+  }
+
+  private windCache?: { result: SimResult; hour: number; w: ReturnType<typeof cellWeather> }
+
+  private drawEmbers(ctx: CanvasRenderingContext2D, grid: Grid, result: SimResult, stepF: number, ox: number, oy: number, cw: number, ch: number) {
+    const { cols, rows, kind } = grid
+    const s = Math.floor(stepF)
+    const hour = Math.floor((s * result.stepMin) / 60)
+    if (this.windCache?.result !== result || this.windCache.hour !== hour) this.windCache = { result, hour, w: cellWeather(grid, result.config, hour) }
+    const w = this.windCache.w
+    const ig = result.ignitionStep
+    const bo = result.burnoutStep
+    const X = (c: number) => ox + ((c % cols) + 0.5) * cw
+    const Y = (c: number) => oy + (((c / cols) | 0) + 0.5) * ch
+    // risk: from each burning edge cell, embers carried ~(3 + wind/7) cells downwind, ±0.3 rad
+    const risk = new Map<number, number>()
+    for (let i = 0; i < ig.length; i++) {
+      const t = ig[i]
+      if (t < 0 || t > s || bo[i] <= s || kind[i] === 1) continue
+      const ws = w.windSpeedKmh[i]
+      if (ws <= 14) continue
+      const cx = i % cols
+      const cy = (i / cols) | 0
+      let edge = false
+      for (let dy = -1; dy <= 1 && !edge; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = cx + dx
+          const y = cy + dy
+          if (x >= 0 && y >= 0 && x < cols && y < rows && ig[y * cols + x] < 0) { edge = true; break }
+        }
+      if (!edge) continue
+      const d = 3 + ws / 7
+      for (const a of [-0.3, 0, 0.3]) {
+        const ang = w.windToRad[i] + a
+        const x = Math.round(cx + Math.sin(ang) * d)
+        const y = Math.round(cy - Math.cos(ang) * d)
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue
+        const j = y * cols + x
+        if (kind[j] === 0 || (ig[j] >= 0 && ig[j] <= s)) continue
+        risk.set(j, (risk.get(j) ?? 0) + 1)
+      }
+    }
+    const r = Math.max(1.6, Math.min(4, Math.min(cw, ch) * 0.28))
+    for (const [j, n] of risk) {
+      ctx.globalAlpha = Math.min(0.9, 0.35 + n * 0.12)
+      ctx.fillStyle = '#ffa53a'
+      ctx.beginPath()
+      ctx.arc(X(j), Y(j), r, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    // spot fires of the last 30 minutes: a fading trail from the source and a bright landing point
+    for (const sp of result.spots ?? []) {
+      const age = stepF - sp.step
+      if (age < -1 || age > 3) continue
+      const a = age < 0 ? age + 1 : 1 - age / 3
+      ctx.globalAlpha = Math.max(0, a) * 0.6
+      ctx.strokeStyle = '#ffd24a'
+      ctx.lineWidth = 1.2
+      ctx.setLineDash([3, 4])
+      ctx.beginPath()
+      ctx.moveTo(X(sp.from), Y(sp.from))
+      ctx.lineTo(X(sp.to), Y(sp.to))
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.globalAlpha = Math.max(0, a)
+      ctx.fillStyle = '#fff1a6'
+      ctx.beginPath()
+      ctx.arc(X(sp.to), Y(sp.to), r * 1.5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = '#ff7a2b'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
     }
     ctx.globalAlpha = 1
   }

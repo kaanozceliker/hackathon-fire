@@ -98,6 +98,8 @@ export class FireStepper {
   ig: Int16Array
   burnout: Int16Array
   burning: number[] = []
+  /** Ember spot fires: where an ember from a burning cell landed and started a new fire. */
+  spots: { step: number; from: number; to: number }[] = []
   /** Multiplier on the chance that a cell ignites, 1 = untouched. */
   resist: Float32Array
   private fuel: Float32Array
@@ -127,6 +129,7 @@ export class FireStepper {
       this.ig = copyFrom.ig.slice()
       this.burnout = copyFrom.burnout.slice()
       this.burning = copyFrom.burning.slice()
+      this.spots = copyFrom.spots.slice()
       this.resist = copyFrom.resist.slice()
       this.fuel = copyFrom.fuel
       return
@@ -232,9 +235,12 @@ export class FireStepper {
           next.push(j)
         }
       }
-      // ember spotting (vegetation fires only)
-      if (this.spotRate[c] > 0 && src === 1 && hash3(seed + 1, c, s) < this.spotRate[c]) {
-        const d = 3 + Math.floor(hash3(seed + 2, c, s) * (this.wx.windSpeedKmh[c] / 5))
+      // ember spotting: only from the flaming front of dense vegetation (pine, maquis), in proportion to its fuel;
+      // smouldering cells, sparse grass and cells being cooled by the response do not loft embers
+      const flaming = s - ig[c] <= Math.max(1, (burnout[c] - ig[c]) / 3)
+      const spotP = this.spotRate[c] * fuel[c] * resist[c]
+      if (spotP > 0 && src === 1 && grid.kind[c] >= 3 && flaming && fuel[c] >= 0.35 && hash3(seed + 1, c, s) < spotP) {
+        const d = 3 + Math.floor(hash3(seed + 2, c, s) * (this.wx.windSpeedKmh[c] / 3.5))
         const spotDx = Math.sin(this.wx.windToRad[c])
         const spotDy = -Math.cos(this.wx.windToRad[c])
         const ang = (hash3(seed + 3, c, s) - 0.5) * 0.8
@@ -247,11 +253,13 @@ export class FireStepper {
         if (x >= 0 && y >= 0 && x < cols && y < rows) {
           const j = y * cols + x
           // a cleared firebreak gives embers little to land in; a wet line damps them
-          const accept = (grid.kind[j] === 1 ? 0.05 : 0.35 + 0.5 * fuel[j]) * Math.min(1, resist[j] * 2)
+          // an ember needs dry, fine fuel where it lands; most die out
+          const accept = (grid.kind[j] === 1 ? 0.03 : 0.15 + 0.45 * fuel[j]) * Math.min(1, resist[j] * 2)
           if (ig[j] === -1 && fuel[j] > 0 && hash3(seed + 4, c, s) < accept) {
             ig[j] = s + 1
             burnout[j] = s + 1 + burnSteps(fuel[j], grid.kind[j])
             next.push(j)
+            this.spots.push({ step: s + 1, from: c, to: j })
           }
         }
       }
@@ -275,6 +283,7 @@ export class FireStepper {
       originCell: this.origin,
       series: computeSeries(this.grid, ig, burnout, steps, this.origin),
       impacts: computeImpacts(this.grid, ig, settlements),
+      spots: this.spots.slice(),
     }
   }
 }
