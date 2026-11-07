@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, PlayCircle, Route, Siren, TreePine, History as HistoryIcon, ClipboardCheck } from 'lucide-react'
+import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, PlayCircle, Route, Siren, TreePine, History as HistoryIcon, ClipboardCheck, Shield } from 'lucide-react'
 import { useStore } from '../state/store'
 import { SimBadge } from './ui'
 
@@ -12,6 +12,7 @@ const NAV = [
   { to: '/history', label: 'Geçmişteki Yangınlar', icon: HistoryIcon },
   { to: '/analytics', label: 'Analiz ve Raporlar', icon: BarChart3 },
   { to: '/tatbikat', label: 'Tatbikat', icon: ClipboardCheck },
+  { to: '/varlik', label: 'Varlık Kalkanı', icon: Shield },
 ]
 
 export function Shell({ title, children }: { title: string; children: ReactNode }) {

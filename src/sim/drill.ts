@@ -11,10 +11,8 @@ import { hash3 } from './rng'
 import type { Grid, Settlement, SimConfig, SimResult } from './types'
 
 /**
- * Tatbikat (drills). Two exams on a real area:
- * 1. Önlem: plan prevention before a fire whose start is hidden; the fire then starts at the most likely ignition
- *    points and the plan is judged on damage avoided, cost and harm to nature.
- * 2. Müdahale: a fire is already burning and reported late; the user commands the response.
+ * Tatbikat (drill): plan prevention on a real area before a fire whose start is hidden; the fire then starts at the
+ * most likely ignition points and the plan is judged on damage avoided, cost and harm to nature.
  * Costs are approximate (src/data/drillCosts.json).
  */
 
@@ -63,7 +61,7 @@ function lengthKm(pts: LatLon[]): number {
 }
 
 /** Cells whose centre lies inside a polygon. */
-function polygonCells(grid: Grid, poly: LatLon[]): number[] {
+export function polygonCells(grid: Grid, poly: LatLon[]): number[] {
   if (poly.length < 3) return []
   let la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity
   for (const [la, lo] of poly) {
@@ -562,91 +560,6 @@ export function ruleOptimal(cands: OptionCandidate[], fires: FireOutcome[]): str
     tl += e.tl
   }
   return pick
-}
-
-// ---------------------------------------------------------------- exam 2: judging the response
-
-export interface ResponseVerdict {
-  score: number
-  grade: string
-  parts: { label: string; score: number; max: number; note: string }[]
-  you: { ha: number; forestHa: number; settlements: number; outH: number | null; evacLate: number; retreats: number }
-  rules: { ha: number; forestHa: number; settlements: number; outH: number | null }
-  none: { ha: number; settlements: number }
-  mistakes: Verdict['mistakes']
-}
-
-export function judgeResponse(you: SimResult, rules: SimResult, settlements: Settlement[]): ResponseVerdict {
-  const r = you.response!
-  const f = you.series[you.series.length - 1]
-  const g = rules.series[rules.series.length - 1]
-  const reached = (x: SimResult) => x.impacts.filter((i) => i.arrivalMin !== null).length
-  const outH = (x: SimResult) => (x.response?.extinguishedStep != null ? (x.response.extinguishedStep * 10) / 60 : null)
-  const noneHa = r.baseline.affectedHa
-  const retreats = r.events.filter((e) => e.kind === 'retreat').length
-  const evacLate = r.evacuations.filter((e) => e.atRisk).length
-  const mistakes: Verdict['mistakes'] = []
-
-  // people
-  let peopleOk = 1
-  settlements.forEach((st, i) => {
-    const arr = you.impacts[i]?.arrivalMin
-    const ev = r.evacuations.find((e) => e.settlementId === st.id)
-    if (arr !== null && arr !== undefined && !ev) {
-      peopleOk -= 0.35
-      mistakes.push({ level: 'kritik', text: `${st.name} (${st.population.toLocaleString('tr-TR')} kişi): yangın yerleşime ulaştı, tahliye edilmedi.` })
-    } else if (ev?.atRisk) {
-      peopleOk -= 0.2
-      mistakes.push({ level: 'kritik', text: `${st.name}: tahliye geç başladı, yangın bitmeden ulaştı.` })
-    } else if (ev && (arr === null || arr === undefined)) {
-      mistakes.push({ level: 'bilgi', text: `${st.name} tahliye edildi ama yangın ulaşmadı; gereksiz tahliye halkı yorar ve kaynak tüketir.` })
-      peopleOk -= 0.05
-    } else if (ev) mistakes.push({ level: 'iyi', text: `${st.name} zamanında tahliye edildi.` })
-  })
-  peopleOk = Math.max(0, peopleOk)
-
-  // fire
-  const base = Math.max(1, noneHa)
-  const effYou = Math.max(0, (noneHa - f.affectedHa) / base)
-  const effRules = Math.max(0.01, (noneHa - g.affectedHa) / base)
-  const fireScore = Math.min(1, effYou / effRules)
-  if (f.affectedHa > g.affectedHa * 1.25) mistakes.push({ level: 'uyari', text: `Sistem komutanı aynı yangında ${Math.round(g.affectedHa)} ha ile bitirdi; sizde ${Math.round(f.affectedHa)} ha yandı.` })
-  else if (f.affectedHa <= g.affectedHa) mistakes.push({ level: 'iyi', text: `Sistem komutanından daha az alan yandı (${Math.round(f.affectedHa)} ha'ya karşı ${Math.round(g.affectedHa)} ha).` })
-
-  // crews
-  const safety = Math.max(0, 1 - retreats * 0.15)
-  if (retreats) mistakes.push({ level: retreats >= 3 ? 'kritik' : 'uyari', text: `Ekipler ${retreats} kez yangın başından veya ilerleyen ateşin önünden geri çekilmek zorunda kaldı; rüzgarlı havada yangın başına kara ekibi gönderilmez.` })
-  const breached = r.lines.reduce((s, l) => s + l.breachedStep.filter((b) => b !== null).length, 0)
-  if (breached) mistakes.push({ level: 'uyari', text: `Kurulan sınırlar ${breached} sektörde aşıldı; sınır yangına çok yakın kuruldu ya da yeterince ekip atanmadı.` })
-
-  // resources
-  const used = new Set<string>()
-  for (const d of r.decisions) for (const a of d.output.actions) if (a.resource_id && a.type !== 'withdraw') used.add(a.resource_id)
-  const all = r.tracks.length
-  const idle = all - r.tracks.filter((t) => used.has(t.id)).length
-  const resScore = all ? Math.max(0, 1 - idle / all) : 1
-  if (idle > 0) mistakes.push({ level: idle > all / 3 ? 'uyari' : 'bilgi', text: `${idle}/${all} kaynak hiç görevlendirilmedi.` })
-  if (!r.drops.length && r.tracks.some((t) => t.kind === 'heli' || t.kind === 'plane')) mistakes.push({ level: 'uyari', text: 'Hava araçları hiç su atmadı.' })
-  if (!r.lines.length && noneHa > 300) mistakes.push({ level: 'uyari', text: 'Büyüyen yangına hiç güvenlik sınırı kurulmadı.' })
-  const first = r.decisions[0]
-  if (first && first.output.actions.every((a) => a.type === 'hold')) mistakes.push({ level: 'uyari', text: 'İhbar anında hiçbir ekip gönderilmedi; ilk dakikalar kaybedildi.' })
-
-  const parts = [
-    { label: 'Yangını durdurma', score: Math.round(fireScore * 40), max: 40, note: `Müdahalesiz ${Math.round(noneHa)} ha yanacaktı; sizde ${Math.round(f.affectedHa)} ha, sistem komutanında ${Math.round(g.affectedHa)} ha.` },
-    { label: 'Can güvenliği', score: Math.round(peopleOk * 35), max: 35, note: `${reached(you)} yerleşime ulaşıldı, ${r.evacuations.length} tahliye.` },
-    { label: 'Ekip güvenliği', score: Math.round(safety * 15), max: 15, note: retreats ? `${retreats} geri çekilme.` : 'Ekipler tehlikeye girmedi.' },
-    { label: 'Kaynak kullanımı', score: Math.round(resScore * 10), max: 10, note: `${all - idle}/${all} kaynak kullanıldı.` },
-  ]
-  const score = parts.reduce((s, p) => s + p.score, 0)
-  return {
-    score,
-    grade: score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F',
-    parts,
-    you: { ha: f.affectedHa, forestHa: f.forestHa, settlements: reached(you), outH: outH(you), evacLate, retreats },
-    rules: { ha: g.affectedHa, forestHa: g.forestHa, settlements: reached(rules), outH: outH(rules) },
-    none: { ha: noneHa, settlements: r.baseline.settlementsReached },
-    mistakes,
-  }
 }
 
 export { getGrid, regionById, getInfrastructure }

@@ -7,6 +7,7 @@ import { Analytics } from './pages/Analytics'
 import { Command } from './pages/Command'
 import { History } from './pages/History'
 import { Drill } from './pages/Drill'
+import { AssetShield } from './pages/AssetShield'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
       <Route path="/planner" element={<Shell title="Müdahale Planlayıcı"><Planner /></Shell>} />
       <Route path="/command" element={<Shell title="Komuta Merkezi"><Command /></Shell>} />
       <Route path="/history" element={<Shell title="Geçmişteki Yangınlar"><History /></Shell>} />
+      <Route path="/varlik" element={<Shell title="Varlık Kalkanı"><AssetShield /></Shell>} />
       <Route path="/tatbikat" element={<Shell title="Tatbikat"><Drill /></Shell>} />
       <Route path="/analytics" element={<Shell title="Analiz ve Raporlar"><Analytics /></Shell>} />
       <Route path="*" element={<Shell title="Bulunamadı"><div className="p-6 text-muted">Bu sayfa mevcut değil. Bir bölüm açmak için kenar çubuğunu kullanın.</div></Shell>} />

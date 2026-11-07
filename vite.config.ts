@@ -22,6 +22,9 @@ function commanderApi(): Plugin {
   const drill: Handler = (req, res, next) => {
     import('./server/commander').then(({ drillHandler }) => drillHandler(req, res, next)).catch(next)
   }
+  const asset: Handler = (req, res, next) => {
+    import('./server/commander').then(({ assetHandler }) => assetHandler(req, res, next)).catch(next)
+  }
   return {
     name: 'forestguard-commander-api',
     configureServer: (server) => {
@@ -30,6 +33,7 @@ function commanderApi(): Plugin {
       server.middlewares.use('/api/prevention', prevention)
       server.middlewares.use('/api/report', report)
       server.middlewares.use('/api/drill', drill)
+      server.middlewares.use('/api/asset', asset)
     },
     configurePreviewServer: (server) => {
       server.middlewares.use('/api/commander', handler)
@@ -37,6 +41,7 @@ function commanderApi(): Plugin {
       server.middlewares.use('/api/prevention', prevention)
       server.middlewares.use('/api/report', report)
       server.middlewares.use('/api/drill', drill)
+      server.middlewares.use('/api/asset', asset)
     },
   }
 }

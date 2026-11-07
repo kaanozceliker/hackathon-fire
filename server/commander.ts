@@ -312,3 +312,69 @@ export async function drillHandler(req: IncomingMessage, res: ServerResponse, ne
     return send(res, 500, { error: (e as Error).message })
   }
 }
+
+// ---------------------------------------------------------------- Varlık Kalkanı: risk profile of one asset
+
+const SECTOR_ENUM = z.enum(['K', 'KD', 'D', 'GD', 'G', 'GB', 'B', 'KB'])
+const LEVEL_ENUM = z.enum(['dusuk', 'orta', 'yuksek', 'cok_yuksek'])
+const AssetReport = z.object({
+  risk_level: LEVEL_ENUM,
+  headline: z.string().describe('Tek cümle: en önemli tehdit ve hangi cephe, ör. "Güneybatıdaki yoğun bitki örtüsü ve hakim rüzgar nedeniyle bu cephe öncelikli incelenmeli."'),
+  summary: z.string().describe('2-3 cümlelik genel değerlendirme; test yangınının ulaşma süresini ve itfaiyenin varış süresini kullan.'),
+  priority_sectors: z.array(z.object({ sector: SECTOR_ENUM, level: LEVEL_ENUM, reason: z.string().describe('Tek cümle, verideki sayılarla.') })).describe('En riskli 2-4 yön, en riskliden başlayarak.'),
+  actions: z.array(z.object({
+    title: z.string().describe('Emir kipinde, somut, en fazla 10 kelime.'),
+    where: z.string().describe('Yapı, yakın çevre (0-30 m), 30-100 m kuşak, bir cephe (ör. "Güneybatı cephesi") veya giriş yolu.'),
+    when: z.enum(['hemen', 'sezon_oncesi', 'yangin_sezonu', 'surekli']),
+    effort: z.enum(['dusuk', 'orta', 'yuksek']),
+    reason: z.string().describe('Tek cümle, bu varlığa özgü gerekçe.'),
+  })).describe('Öncelik sırasıyla 4-8 önlem.'),
+  emergency: z.array(z.string()).describe('Yangın anında yapılacak 3-5 madde.'),
+  access_note: z.string().describe('İtfaiye erişimi ve su kaynağı hakkında tek cümle.'),
+  caveats: z.string(),
+})
+
+const ASSET_SYSTEM = `Sen orman-yerleşim ara yüzünde (WUI) yapıların yangın riskini değerlendiren bir uzmansın. ForestGuard "Varlık Kalkanı" aracında bir kullanıcı haritada kendi varlığını (ev, işyeri, tesis) çizdi. Sana bu varlığın çevresinin sayısal analizi gelir:
+- halkalar: 0-150 m, 150-500 m, 500-2000 m içinde orman, maki, açık alan, yerleşim, su (ha) ve ortalama yakıt;
+- 8 yön (yönden gelen): 2 km içinde orman+maki, 300 m içinde bitki, yapıya doğru yokuş yüzdesi (pozitifse yangın yokuş yukarı yapıya koşar), rüzgarın o yönden esme payı, puan;
+- 7 günlük hava tahmini ve bölgenin tipik yangın sezonu rüzgarı, 30-30-30 günleri (≥30 °C, ≤%30 nem, ≥30 km/sa rüzgar civarı);
+- erişim: en yakın yol, itfaiye istasyonu ve yolla varış süresi, en yakın su kaynağı;
+- daha önce yanmış alan, gözetleme kulesi;
+- test yangınları: en riskli yönlerden ~1,5 km öteden çıkan yangının yapıya ulaşma süresi.
+
+Görevin varlık sahibine anlaşılır bir risk profili ve önlem raporu yazmak:
+- headline: en önemli tehdidi yön adıyla söyle (ör. "Güneybatıdaki yoğun bitki örtüsü ve hakim rüzgar koşulları nedeniyle bu cephe öncelikli incelenmeli").
+- Önlemler somut olsun: yakın çevrede yanmaz alan (0-30 m), 30-100 m kuşakta yakıt azaltma ve ağaç taçlarını açma, çatı/oluk/havalandırma kor koruması, odun ve yanıcı malzemeyi uzaklaştırma, itfaiye erişim yolu, su deposu, kuru ot biçme vb. Her önlemi bu varlığın verisine bağla.
+- Yönleri Türkçe tam adla yaz (Kuzey, Kuzeydoğu, Doğu, Güneydoğu, Güney, Güneybatı, Batı, Kuzeybatı).
+- Sayıları verilen veriden al, uydurma. Risk düzeyini hesaplanan puana yakın tut, ancak gerekçeliyse bir basamak değiştirebilirsin.
+- Metinler Türkçe, kısa ve uygulanabilir olsun; varlık sahibi uzman değildir.`
+
+export async function assetHandler(req: IncomingMessage, res: ServerResponse, next?: () => void) {
+  if (req.method !== 'POST') return next ? next() : send(res, 404, { error: 'not found' })
+  if (!hasKey()) return send(res, 503, { error: 'Sunucuda OPENAI_API_KEY tanımlı değil.' })
+  let body: { context?: unknown }
+  try {
+    body = (await readJson(req)) as { context?: unknown }
+  } catch {
+    return send(res, 400, { error: 'Geçersiz JSON.' })
+  }
+  if (!body.context) return send(res, 400, { error: 'context eksik.' })
+  client ??= new OpenAI()
+  try {
+    const response = await client.responses.parse({
+      model: model(),
+      instructions: ASSET_SYSTEM,
+      input: `Varlık analizi:\n${JSON.stringify(body.context, null, 1)}`,
+      reasoning: { effort: 'low' },
+      max_output_tokens: 12000,
+      text: { format: zodTextFormat(AssetReport, 'varlik_risk_raporu') },
+    })
+    if (!response.output_parsed) return send(res, 502, { error: `Yanıt şemaya uymadı (durum: ${response.status}).` })
+    return send(res, 200, { output: response.output_parsed, model: model() })
+  } catch (e) {
+    if (e instanceof OpenAI.AuthenticationError) return send(res, 503, { error: 'OpenAI API anahtarı geçersiz.' })
+    if (e instanceof OpenAI.RateLimitError) return send(res, 429, { error: 'OpenAI istek sınırına veya kotaya takıldı.' })
+    if (e instanceof OpenAI.APIError) return send(res, 502, { error: `OpenAI API hatası ${e.status ?? ''}: ${e.message}` })
+    return send(res, 500, { error: (e as Error).message })
+  }
+}
