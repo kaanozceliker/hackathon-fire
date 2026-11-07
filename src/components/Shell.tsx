@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, PlayCircle, Route, Siren, TreePine, History as HistoryIcon, ClipboardCheck, Shield } from 'lucide-react'
+import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, PlayCircle, Route, Siren, TreePine, History as HistoryIcon, ClipboardCheck, Moon, Shield, Sun } from 'lucide-react'
 import { useStore } from '../state/store'
+import { useTheme } from '../state/theme'
 import { SimBadge } from './ui'
 
 const NAV = [
@@ -19,6 +20,7 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
   const [collapsed, setCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth < 900)
   const { scenarios, active, setActive, restart, setPlaying, toast } = useStore()
   const nav = useNavigate()
+  const [theme, setTheme] = useTheme()
   const runDemo = () => {
     setActive('demo')
     restart()
@@ -74,6 +76,9 @@ export function Shell({ title, children }: { title: string; children: ReactNode 
             </select>
           </label>
           <SimBadge />
+          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'} title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'} className="flex h-8 w-8 items-center justify-center border border-line2 text-muted hover:text-ink">
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
         </header>
         <main className="relative min-h-0 flex-1 overflow-auto">{children}</main>
       </div>

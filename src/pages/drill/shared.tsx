@@ -23,7 +23,7 @@ export function ScoreCard({ score, grade, parts, title }: { score: number; grade
     <section className="border border-line bg-panel p-3">
       <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-muted">{title}</div>
       <div className="mt-2 flex items-center gap-4">
-        <div className="flex h-[76px] w-[76px] shrink-0 flex-col items-center justify-center rounded-full border-[5px]" style={{ borderColor: GRADE_COLOR[grade] ?? '#8a9ba3' }}>
+        <div className="flex h-[76px] w-[76px] shrink-0 flex-col items-center justify-center rounded-full border-[5px]" style={{ borderColor: GRADE_COLOR[grade] ?? 'var(--color-muted)' }}>
           <span className="text-[26px] font-bold leading-none">{grade}</span>
         </div>
         <div>

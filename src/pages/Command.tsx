@@ -55,7 +55,7 @@ function phaseTone(phase: string): { color: string; name: string } {
   if (/kontrol|soğut|söndü/.test(p)) return { color: '#3b9be0', name: 'Kontrol' }
   if (/sınır|dolaylı/.test(p)) return { color: '#e3a72f', name: 'Güvenlik sınırı' }
   if (/ilk|doğrudan/.test(p)) return { color: '#3fa564', name: 'İlk müdahale' }
-  return { color: '#8a9ba3', name: 'Diğer' }
+  return { color: 'var(--color-muted)', name: 'Diğer' }
 }
 
 const iconCache = new Map<string, L.DivIcon>()
@@ -959,7 +959,7 @@ function IncidentStrip({ run, rec, live, onSelect }: { run: ReturnType<typeof us
           ))}
           {rec?.extinguishedStep != null && <div className="absolute top-1.5 h-7 w-0.5 bg-forest" style={{ left: pct(rec.extinguishedStep) }} title="Yangın söndü" />}
           {rec?.decisions.map((d, i) => (
-            <button key={i} onClick={() => onSelect(i)} aria-label={`${T(d.step)} kararı: ${d.output.phase}`} className="absolute top-[7px] h-3 w-3 -translate-x-1/2 rotate-45 border border-bg hover:scale-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink" style={{ left: pct(d.step), background: d.source === 'ai' ? '#3b9be0' : '#e7eee9' }} />
+            <button key={i} onClick={() => onSelect(i)} aria-label={`${T(d.step)} kararı: ${d.output.phase}`} className="absolute top-[7px] h-3 w-3 -translate-x-1/2 rotate-45 border border-bg hover:scale-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink" style={{ left: pct(d.step), background: d.source === 'ai' ? '#3b9be0' : 'var(--color-ink)' }} />
           ))}
           {/* playhead */}
           <div className="pointer-events-none absolute top-0 h-8 w-0.5 bg-ink" style={{ left: pct(run.headMin / 10) }} />

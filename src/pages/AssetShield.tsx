@@ -277,7 +277,7 @@ export function AssetShield() {
               <Tooltip sticky>{SECTOR_NAME[s.sector]}: {s.score}/100 · {s.fuelHa} ha orman ve maki · yokuş %{s.upslopePct} · rüzgar payı %{Math.round(s.windShare * 100)}</Tooltip>
             </Polygon>
           ))}
-          {profile && [150, 500, 2000].map((r) => <Circle key={r} center={profile.centroid} radius={r} interactive={false} pathOptions={{ color: '#e7eee9', weight: 1, opacity: 0.45, dashArray: '2 6', fill: false }} />)}
+          {profile && [150, 500, 2000].map((r) => <Circle key={r} center={profile.centroid} radius={r} interactive={false} pathOptions={{ color: 'var(--color-ink)', weight: 1, opacity: 0.45, dashArray: '2 6', fill: false }} />)}
           {profile?.fireTests.map((f) => {
             const b = profile.sectors.find((s) => s.sector === f.sector)!.bearing
             const start = towards(profile.centroid, b, f.startKm * 1000)
@@ -397,15 +397,15 @@ function Rose({ profile, highlight }: { profile: AssetProfile; highlight: Set<Se
   return (
     <div className="flex items-center gap-3">
       <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`} className="shrink-0" role="img" aria-label="Yönlere göre risk">
-        {[0.33, 0.66, 1].map((f) => <circle key={f} cx={c} cy={c} r={R * f} fill="none" stroke="#2f414b" strokeWidth={0.8} />)}
+        {[0.33, 0.66, 1].map((f) => <circle key={f} cx={c} cy={c} r={R * f} fill="none" stroke="var(--color-line2)" strokeWidth={0.8} />)}
         {profile.sectors.map((s, k) => {
           const lv = levelOf(s.score)
-          return <path key={s.sector} d={wedge(k, Math.max(6, (s.score / 100) * R))} fill={LEVEL_COLOR[lv]} fillOpacity={0.75} stroke={highlight.has(s.sector) ? '#ffffff' : '#0f171c'} strokeWidth={highlight.has(s.sector) ? 2 : 1.5}><title>{SECTOR_NAME[s.sector]}: {s.score}/100</title></path>
+          return <path key={s.sector} d={wedge(k, Math.max(6, (s.score / 100) * R))} fill={LEVEL_COLOR[lv]} fillOpacity={0.75} stroke={highlight.has(s.sector) ? '#ffffff' : 'var(--color-panel)'} strokeWidth={highlight.has(s.sector) ? 2 : 1.5}><title>{SECTOR_NAME[s.sector]}: {s.score}/100</title></path>
         })}
-        <circle cx={c} cy={c} r={5} fill="#e7eee9" />
+        <circle cx={c} cy={c} r={5} fill="var(--color-ink)" />
         {SECTORS.map((s, k) => {
           const a = ((k * 45 - 90) * Math.PI) / 180
-          return <text key={s} x={c + (R + 12) * Math.cos(a)} y={c + (R + 12) * Math.sin(a) + 3.5} textAnchor="middle" fontSize={10.5} fontWeight={600} fill="#c8d3cd">{s}</text>
+          return <text key={s} x={c + (R + 12) * Math.cos(a)} y={c + (R + 12) * Math.sin(a) + 3.5} textAnchor="middle" fontSize={10.5} fontWeight={600} fill="var(--color-ink-soft)">{s}</text>
         })}
       </svg>
       <ul className="space-y-1 text-[11px]">

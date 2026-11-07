@@ -12,6 +12,7 @@ import { aqiOf, computeSmoke, pmAt } from '../sim/smoke'
 import { weatherAt } from '../sim/weather'
 import { FireCanvasLayer, type CellInfo, type FireMode } from './FireCanvasLayer'
 import { FireFxLayer } from './FireFxLayer'
+import { useTheme } from '../state/theme'
 import { gridBounds } from '../sim/terrain'
 import { compass } from '../sim/geo'
 
@@ -27,6 +28,17 @@ const BASEMAPS = {
     : {
         label: 'Koyu',
         url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attr: '&copy; OpenStreetMap contributors &copy; CARTO',
+      },
+  light: MAPTILER_KEY
+    ? {
+        label: 'Harita',
+        url: `https://api.maptiler.com/maps/dataviz/256/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,
+        attr: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
+      }
+    : {
+        label: 'Harita',
+        url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
         attr: '&copy; OpenStreetMap contributors &copy; CARTO',
       },
   satellite: {
@@ -221,7 +233,10 @@ export interface MapStageProps {
 }
 
 export function MapStage(p: MapStageProps) {
-  const [base, setBase] = useState<keyof typeof BASEMAPS>('dark')
+  // the street map follows the app theme; satellite stays satellite
+  const [theme] = useTheme()
+  const [pickedBase, setBase] = useState<'map' | 'satellite'>('map')
+  const base: keyof typeof BASEMAPS = pickedBase === 'satellite' ? 'satellite' : theme === 'light' ? 'light' : 'dark'
   const [hover, setHover] = useState<CellInfo | null>(null)
   const grid = p.grid ?? null
   const bounds = grid && p.fitGrid ? gridBounds(grid) : undefined
@@ -258,9 +273,9 @@ export function MapStage(p: MapStageProps) {
       <div className="pointer-events-none absolute right-2 top-2 z-[500] flex flex-col items-end gap-2">
         <div className="pointer-events-auto flex border border-line2 bg-bg/90 text-[12px]">
           <span className="flex items-center px-1.5 text-muted"><Layers size={13} /></span>
-          {(Object.keys(BASEMAPS) as (keyof typeof BASEMAPS)[]).map((k) => (
-            <button key={k} onClick={() => setBase(k)} aria-pressed={base === k} className={`px-2 py-1 font-medium ${base === k ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>
-              {BASEMAPS[k].label}
+          {([['map', theme === 'light' ? 'Harita' : 'Koyu'], ['satellite', 'Uydu']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setBase(k)} aria-pressed={pickedBase === k} className={`px-2 py-1 font-medium ${pickedBase === k ? 'bg-forest-dim text-ink' : 'text-muted hover:text-ink'}`}>
+              {label}
             </button>
           ))}
         </div>

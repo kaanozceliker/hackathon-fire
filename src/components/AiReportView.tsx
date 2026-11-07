@@ -13,8 +13,8 @@ import type { SimResult } from '../sim/types'
  * AI writes the short texts.
  */
 
-const axis = { fill: '#8a9ba3', fontSize: 11 }
-const tip = { background: '#0f171c', border: '1px solid #2f414b', fontSize: 12 }
+const axis = { fill: 'var(--color-muted)', fontSize: 11 }
+const tip = { background: 'var(--color-panel)', border: '1px solid var(--color-line2)', fontSize: 12 }
 const n0 = (v: number) => Math.round(v).toLocaleString('tr-TR')
 const T = (min: number) => `T+${fmtDuration(min)}`
 
@@ -142,20 +142,20 @@ function Visual({ r, model, cached, res }: { r: AiReport; model?: string; cached
             <span className="flex items-center gap-3 text-[11px] text-muted">
               <span className="flex items-center gap-1"><span className="h-2 w-3 rounded-sm bg-[#e5502a]/70" /> Toplam etkilenen</span>
               <span className="flex items-center gap-1"><span className="h-0.5 w-3 bg-[#ffd24a]" /> O an yanan</span>
-              <span className="flex items-center gap-1"><span className="h-3 border-l border-dashed border-[#c8d3cd]" /> Yerleşime varış</span>
+              <span className="flex items-center gap-1"><span className="h-3 border-l border-dashed border-[var(--color-ink-soft)]" /> Yerleşime varış</span>
             </span>
           </figcaption>
           <div className="h-[240px]">
             <ResponsiveContainer>
               <ComposedChart data={growth} margin={{ top: 18, right: 12, left: -4, bottom: 0 }}>
-                <CartesianGrid stroke="#233139" vertical={false} />
-                <XAxis dataKey="h" type="number" domain={[0, 'dataMax']} tick={axis} stroke="#2f414b" tickFormatter={(v) => `${v}sa`} />
-                <YAxis tick={axis} stroke="#2f414b" width={52} tickFormatter={(v) => n0(v)} />
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="h" type="number" domain={[0, 'dataMax']} tick={axis} stroke="var(--color-line2)" tickFormatter={(v) => `${v}sa`} />
+                <YAxis tick={axis} stroke="var(--color-line2)" width={52} tickFormatter={(v) => n0(v)} />
                 <RTooltip contentStyle={tip} labelFormatter={(v) => `T+${Number(v).toFixed(1)} sa`} formatter={(v, k) => [`${n0(Number(v))} ha`, k === 'ha' ? 'Toplam etkilenen' : 'O an yanan']} />
                 <Area dataKey="ha" type="monotone" stroke="#e5502a" strokeWidth={2} fill="#e5502a" fillOpacity={0.28} isAnimationActive={false} />
                 <Line dataKey="burning" type="monotone" stroke="#ffd24a" strokeWidth={2} dot={false} isAnimationActive={false} />
                 {arrivals.slice(0, 6).map((a, i) => (
-                  <ReferenceLine key={a.name} x={+(a.min / 60).toFixed(2)} stroke="#c8d3cd" strokeOpacity={0.6} strokeDasharray="3 4" label={{ value: a.name, position: i % 2 ? 'insideTopRight' : 'insideTopLeft', fill: '#c8d3cd', fontSize: 10 }} />
+                  <ReferenceLine key={a.name} x={+(a.min / 60).toFixed(2)} stroke="var(--color-ink-soft)" strokeOpacity={0.6} strokeDasharray="3 4" label={{ value: a.name, position: i % 2 ? 'insideTopRight' : 'insideTopLeft', fill: 'var(--color-ink-soft)', fontSize: 10 }} />
                 ))}
               </ComposedChart>
             </ResponsiveContainer>
@@ -168,7 +168,7 @@ function Visual({ r, model, cached, res }: { r: AiReport; model?: string; cached
             <div className="relative h-[180px] w-[180px] shrink-0">
               <ResponsiveContainer>
                 <PieChart>
-                  <Pie data={cover} dataKey="ha" nameKey="label" innerRadius={56} outerRadius={84} paddingAngle={2} stroke="#0f171c" strokeWidth={2} isAnimationActive={false}>
+                  <Pie data={cover} dataKey="ha" nameKey="label" innerRadius={56} outerRadius={84} paddingAngle={2} stroke="var(--color-panel)" strokeWidth={2} isAnimationActive={false}>
                     {cover.map((c) => <Cell key={c.key} fill={c.color} />)}
                   </Pie>
                   <RTooltip contentStyle={tip} formatter={(v, k) => [`${n0(Number(v))} ha`, String(k)]} />
@@ -294,11 +294,11 @@ function SettlementStrip({ res, sm, ex }: { res: SimResult; sm: ReturnType<typeo
               <div className="truncate text-[12px]" title={st.name}>{st.name} <span className="text-[10.5px] text-muted">{n0(st.population)}</span></div>
               <div className="relative flex h-5 gap-[2px]">
                 {cells.map((v, h) => (
-                  <div key={h} className="h-full flex-1 rounded-[2px]" style={{ background: v < 1 ? '#1b262d' : aqiOf(v).color, opacity: v < 1 ? 1 : 0.9 }} title={`${st.name} · T+${h}–${h + 1} sa · en yüksek ${n0(v)} µg/m³ (${aqiOf(v).name})`} />
+                  <div key={h} className="h-full flex-1 rounded-[2px]" style={{ background: v < 1 ? 'var(--color-panel2)' : aqiOf(v).color, opacity: v < 1 ? 1 : 0.9 }} title={`${st.name} · T+${h}–${h + 1} sa · en yüksek ${n0(v)} µg/m³ (${aqiOf(v).name})`} />
                 ))}
                 {arrival !== null && (
                   <div className="pointer-events-none absolute -top-1 bottom-[-4px] flex flex-col items-center" style={{ left: `calc(${(arrival / 60 / hours) * 100}% - 7px)` }} title={`Yangın ${T(arrival)}'da ulaştı`}>
-                    <Flame size={14} className="fill-[#ffd24a] text-[#0f171c]" />
+                    <Flame size={14} className="fill-[#ffd24a] text-[var(--color-panel)]" />
                   </div>
                 )}
               </div>

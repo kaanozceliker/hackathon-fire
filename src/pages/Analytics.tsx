@@ -10,8 +10,8 @@ import { compass, fmtDuration } from '../sim/geo'
 import { buildReport, reportMarkdown } from '../sim/report'
 import { useStore } from '../state/store'
 
-const axis = { fill: '#8a9ba3', fontSize: 11 }
-const tip = { background: '#0f171c', border: '1px solid #2f414b', fontSize: 12 }
+const axis = { fill: 'var(--color-muted)', fontSize: 11 }
+const tip = { background: 'var(--color-panel)', border: '1px solid var(--color-line2)', fontSize: 12 }
 
 export function Analytics() {
   const { scenarios, compareIds, toggleCompare, removeScenario, active, notify, aiReports, requestAiReport } = useStore()
@@ -100,12 +100,12 @@ export function Analytics() {
               <div className="h-[290px]">
                 <ResponsiveContainer>
                   <LineChart data={lineData} margin={{ top: 8, right: 16, left: -6, bottom: 0 }}>
-                    <CartesianGrid stroke="#233139" vertical={false} />
-                    <XAxis dataKey="h" type="number" domain={[0, maxSteps / 6]} tick={axis} tickFormatter={(v) => `${v}sa`} stroke="#2f414b" />
-                    <YAxis tick={axis} stroke="#2f414b" width={52} tickFormatter={(v) => `${v.toLocaleString('en-US')}`} label={{ value: 'hektar', angle: -90, position: 'insideLeft', fill: '#8a9ba3', fontSize: 11, dx: 14 }} />
+                    <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                    <XAxis dataKey="h" type="number" domain={[0, maxSteps / 6]} tick={axis} tickFormatter={(v) => `${v}sa`} stroke="var(--color-line2)" />
+                    <YAxis tick={axis} stroke="var(--color-line2)" width={52} tickFormatter={(v) => `${v.toLocaleString('en-US')}`} label={{ value: 'hektar', angle: -90, position: 'insideLeft', fill: 'var(--color-muted)', fontSize: 11, dx: 14 }} />
                     <RTooltip contentStyle={tip} labelFormatter={(v) => `T+${Number(v).toFixed(1)} sa`} formatter={(v, k) => [`${Number(v).toLocaleString('en-US')} ha`, scenarios.find((s) => s.id === k)?.name ?? String(k)]} />
-                    <RLegend formatter={(v) => <span style={{ color: '#c8d3cd', fontSize: 12 }}>{scenarios.find((s) => s.id === v)?.name}</span>} />
-                    {chosen.map((s) => <Line key={s.id} dataKey={s.id} stroke={s.color} strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4, stroke: '#0f171c', strokeWidth: 2 }} />)}
+                    <RLegend formatter={(v) => <span style={{ color: 'var(--color-ink-soft)', fontSize: 12 }}>{scenarios.find((s) => s.id === v)?.name}</span>} />
+                    {chosen.map((s) => <Line key={s.id} dataKey={s.id} stroke={s.color} strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4, stroke: 'var(--color-panel)', strokeWidth: 2 }} />)}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -139,14 +139,14 @@ export function Analytics() {
               <div className="h-[250px]">
                 <ResponsiveContainer>
                   <BarChart data={coverData} margin={{ top: 8, right: 16, left: -6, bottom: 0 }} barCategoryGap="28%">
-                    <CartesianGrid stroke="#233139" vertical={false} />
-                    <XAxis dataKey="name" tick={axis} stroke="#2f414b" />
-                    <YAxis tick={axis} stroke="#2f414b" width={52} />
+                    <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                    <XAxis dataKey="name" tick={axis} stroke="var(--color-line2)" />
+                    <YAxis tick={axis} stroke="var(--color-line2)" width={52} />
                     <RTooltip contentStyle={tip} cursor={{ fill: 'rgba(255,255,255,.04)' }} formatter={(v, k) => [`${Number(v).toLocaleString('en-US')} ha`, String(k)]} />
-                    <RLegend formatter={(v) => <span style={{ color: '#c8d3cd', fontSize: 12 }}>{v}</span>} />
-                    <Bar dataKey="pine" name="Çam ormanı" stackId="a" fill="#2f9e5c" stroke="#0f171c" strokeWidth={2} isAnimationActive={false} />
-                    <Bar dataKey="maquis" name="Maki çalılığı" stackId="a" fill="#8fc46a" stroke="#0f171c" strokeWidth={2} isAnimationActive={false} />
-                    <Bar dataKey="sparse" name="Seyrek ve diğer" stackId="a" fill="#b8ad5a" stroke="#0f171c" strokeWidth={2} isAnimationActive={false} />
+                    <RLegend formatter={(v) => <span style={{ color: 'var(--color-ink-soft)', fontSize: 12 }}>{v}</span>} />
+                    <Bar dataKey="pine" name="Çam ormanı" stackId="a" fill="#2f9e5c" stroke="var(--color-panel)" strokeWidth={2} isAnimationActive={false} />
+                    <Bar dataKey="maquis" name="Maki çalılığı" stackId="a" fill="#8fc46a" stroke="var(--color-panel)" strokeWidth={2} isAnimationActive={false} />
+                    <Bar dataKey="sparse" name="Seyrek ve diğer" stackId="a" fill="#b8ad5a" stroke="var(--color-panel)" strokeWidth={2} isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

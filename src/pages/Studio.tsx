@@ -371,14 +371,14 @@ export function Studio() {
             <div className="mt-2 h-[120px]">
               <ResponsiveContainer>
                 <ComposedChart data={weatherChart} margin={{ top: 6, right: 0, left: -18, bottom: 0 }}>
-                  <CartesianGrid stroke="#233139" vertical={false} />
-                  <XAxis dataKey="h" type="number" domain={[0, res.config.durationH]} tick={{ fill: '#8a9ba3', fontSize: 11 }} tickFormatter={(v) => `${v}sa`} stroke="#2f414b" />
-                  <YAxis yAxisId="w" tick={{ fill: '#8a9ba3', fontSize: 11 }} stroke="#2f414b" width={40} />
-                  <YAxis yAxisId="h" orientation="right" domain={[0, 100]} tick={{ fill: '#8a9ba3', fontSize: 11 }} stroke="#2f414b" width={30} />
-                  <RTooltip contentStyle={{ background: '#0f171c', border: '1px solid #2f414b', fontSize: 12 }} labelFormatter={(v) => `T+${v} sa`} formatter={(v, k, item) => (k === 'windSpeedKmh' ? [`${Number(v).toFixed(0)} km/sa ${compass((item.payload as { windFromDeg: number }).windFromDeg)}`, 'Rüzgar'] : [`%${Number(v).toFixed(0)}`, 'Nem'])} />
-                  <Line yAxisId="w" dataKey="windSpeedKmh" stroke="#e7eee9" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                  <XAxis dataKey="h" type="number" domain={[0, res.config.durationH]} tick={{ fill: 'var(--color-muted)', fontSize: 11 }} tickFormatter={(v) => `${v}sa`} stroke="var(--color-line2)" />
+                  <YAxis yAxisId="w" tick={{ fill: 'var(--color-muted)', fontSize: 11 }} stroke="var(--color-line2)" width={40} />
+                  <YAxis yAxisId="h" orientation="right" domain={[0, 100]} tick={{ fill: 'var(--color-muted)', fontSize: 11 }} stroke="var(--color-line2)" width={30} />
+                  <RTooltip contentStyle={{ background: 'var(--color-panel)', border: '1px solid var(--color-line2)', fontSize: 12 }} labelFormatter={(v) => `T+${v} sa`} formatter={(v, k, item) => (k === 'windSpeedKmh' ? [`${Number(v).toFixed(0)} km/sa ${compass((item.payload as { windFromDeg: number }).windFromDeg)}`, 'Rüzgar'] : [`%${Number(v).toFixed(0)}`, 'Nem'])} />
+                  <Line yAxisId="w" dataKey="windSpeedKmh" stroke="var(--color-ink)" strokeWidth={2} dot={false} isAnimationActive={false} />
                   <Line yAxisId="h" dataKey="humidityPct" stroke="#3b9be0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <ReferenceLine yAxisId="w" x={stat.minutes / 60} stroke="#e7eee9" strokeDasharray="3 3" />
+                  <ReferenceLine yAxisId="w" x={stat.minutes / 60} stroke="var(--color-ink)" strokeDasharray="3 3" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -429,12 +429,12 @@ export function Studio() {
           <div className="h-[150px]">
             <ResponsiveContainer>
               <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                <CartesianGrid stroke="#233139" vertical={false} />
-                <XAxis dataKey="h" type="number" domain={[0, res.config.durationH]} tick={{ fill: '#8a9ba3', fontSize: 11 }} tickFormatter={(v) => `${v}sa`} stroke="#2f414b" />
-                <YAxis tick={{ fill: '#8a9ba3', fontSize: 11 }} stroke="#2f414b" width={44} />
-                <RTooltip contentStyle={{ background: '#0f171c', border: '1px solid #2f414b', fontSize: 12 }} labelFormatter={(v) => `T+${Number(v).toFixed(1)} sa`} formatter={(v) => [`${Number(v).toLocaleString('en-US')} ha`, 'Etkilenen']} />
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="h" type="number" domain={[0, res.config.durationH]} tick={{ fill: 'var(--color-muted)', fontSize: 11 }} tickFormatter={(v) => `${v}sa`} stroke="var(--color-line2)" />
+                <YAxis tick={{ fill: 'var(--color-muted)', fontSize: 11 }} stroke="var(--color-line2)" width={44} />
+                <RTooltip contentStyle={{ background: 'var(--color-panel)', border: '1px solid var(--color-line2)', fontSize: 12 }} labelFormatter={(v) => `T+${Number(v).toFixed(1)} sa`} formatter={(v) => [`${Number(v).toLocaleString('en-US')} ha`, 'Etkilenen']} />
                 <Area type="monotone" dataKey="ha" stroke="#e3a72f" strokeWidth={2} fill="#e3a72f" fillOpacity={0.18} isAnimationActive={false} />
-                <ReferenceLine x={stat.minutes / 60} stroke="#e7eee9" strokeDasharray="3 3" />
+                <ReferenceLine x={stat.minutes / 60} stroke="var(--color-ink)" strokeDasharray="3 3" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

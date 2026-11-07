@@ -326,16 +326,16 @@ export function History() {
           <div className="mt-1 h-[120px]">
             <ResponsiveContainer>
               <ComposedChart data={chart} margin={{ top: 6, right: 8, left: -10, bottom: 0 }}>
-                <CartesianGrid stroke="#233139" vertical={false} />
-                <XAxis dataKey="i" type="number" domain={[0, w.time.length - 1]} tick={{ fill: '#8a9ba3', fontSize: 11 }} tickFormatter={(i) => label(w.time[i] ?? '').slice(0, 5)} ticks={w.time.map((_, i) => i).filter((i) => i % 24 === 0)} stroke="#2f414b" />
-                <YAxis yAxisId="w" tick={{ fill: '#8a9ba3', fontSize: 11 }} stroke="#2f414b" width={36} />
-                <YAxis yAxisId="ha" orientation="right" tick={{ fill: '#8a9ba3', fontSize: 11 }} stroke="#2f414b" width={44} />
-                <RTooltip contentStyle={{ background: '#0f171c', border: '1px solid #2f414b', fontSize: 12 }} labelFormatter={(i) => label(w.time[Number(i)] ?? '')} formatter={(v, k) => [k === 'burned' ? `${Number(v).toLocaleString('en-US')} ha` : k === 'hum' ? `%${v}` : `${Math.round(Number(v))} km/sa`, k === 'burned' ? 'Yanmış alan (uydu)' : k === 'hum' ? 'Nem' : k === 'gust' ? 'Hamle' : 'Rüzgar']} />
+                <CartesianGrid stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="i" type="number" domain={[0, w.time.length - 1]} tick={{ fill: 'var(--color-muted)', fontSize: 11 }} tickFormatter={(i) => label(w.time[i] ?? '').slice(0, 5)} ticks={w.time.map((_, i) => i).filter((i) => i % 24 === 0)} stroke="var(--color-line2)" />
+                <YAxis yAxisId="w" tick={{ fill: 'var(--color-muted)', fontSize: 11 }} stroke="var(--color-line2)" width={36} />
+                <YAxis yAxisId="ha" orientation="right" tick={{ fill: 'var(--color-muted)', fontSize: 11 }} stroke="var(--color-line2)" width={44} />
+                <RTooltip contentStyle={{ background: 'var(--color-panel)', border: '1px solid var(--color-line2)', fontSize: 12 }} labelFormatter={(i) => label(w.time[Number(i)] ?? '')} formatter={(v, k) => [k === 'burned' ? `${Number(v).toLocaleString('en-US')} ha` : k === 'hum' ? `%${v}` : `${Math.round(Number(v))} km/sa`, k === 'burned' ? 'Yanmış alan (uydu)' : k === 'hum' ? 'Nem' : k === 'gust' ? 'Hamle' : 'Rüzgar']} />
                 <Bar yAxisId="ha" dataKey="burned" fill="#ee7a2b" barSize={6} isAnimationActive={false} />
-                <Line yAxisId="w" dataKey="wind" stroke="#e7eee9" strokeWidth={1.8} dot={false} isAnimationActive={false} />
-                <Line yAxisId="w" dataKey="gust" stroke="#8a9ba3" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
+                <Line yAxisId="w" dataKey="wind" stroke="var(--color-ink)" strokeWidth={1.8} dot={false} isAnimationActive={false} />
+                <Line yAxisId="w" dataKey="gust" stroke="var(--color-muted)" strokeWidth={1} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
                 <Line yAxisId="w" dataKey="hum" stroke="#3b9be0" strokeWidth={1.4} dot={false} isAnimationActive={false} />
-                <ReferenceLine yAxisId="w" x={tMin / 60} stroke="#e7eee9" strokeDasharray="3 3" />
+                <ReferenceLine yAxisId="w" x={tMin / 60} stroke="var(--color-ink)" strokeDasharray="3 3" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
