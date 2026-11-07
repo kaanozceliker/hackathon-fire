@@ -51,7 +51,7 @@ function Clicks({ onClick, pick }: { onClick?: (lat: number, lon: number) => voi
   return null
 }
 
-function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; resultB: SimResult | null; step: number; mode: FireMode; perimeter: boolean; opacity?: number; clockRef?: { current: number }; onHover: (c: CellInfo | null) => void }) {
+function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; resultB: SimResult | null; step: number; mode: FireMode; perimeter: boolean; opacity?: number; clockRef?: { current: number }; zoneColors?: (string | null)[] | null; zoneHover?: number | null; onHover: (c: CellInfo | null) => void }) {
   const map = useMap()
   const layer = useRef<FireCanvasLayer | null>(null)
   useEffect(() => {
@@ -69,7 +69,7 @@ function FireLayerBridge(props: { grid: Grid | null; result: SimResult | null; r
     mouseout: () => onHover(null),
   })
   const stepNow = () => (props.clockRef ? props.clockRef.current / 10 : props.step)
-  const draw = (step: number) => layer.current?.update({ grid: props.grid, result: props.result, resultB: props.resultB, step, mode: props.mode, perimeter: props.perimeter, opacity: props.opacity })
+  const draw = (step: number) => layer.current?.update({ grid: props.grid, result: props.result, resultB: props.resultB, step, mode: props.mode, perimeter: props.perimeter, opacity: props.opacity, zoneColors: props.zoneColors, zoneHover: props.zoneHover })
   useEffect(() => {
     draw(stepNow())
   })
@@ -171,6 +171,11 @@ export interface MapStageProps {
   legend?: ReactNode
   controls?: ReactNode
   hud?: boolean
+  /** Post-fire strategy colours per sector, painted on the burned area. */
+  zoneColors?: (string | null)[] | null
+  zoneHover?: number | null
+  /** Called with the cell under the cursor (or null). */
+  onHoverCell?: (c: CellInfo | null) => void
   /** Continuous playback time in minutes; when given, the fire layer animates smoothly between steps. */
   clockRef?: { current: number }
   /** Safety lines, water drops and evacuation routes of a response run at a step. */
@@ -206,7 +211,12 @@ export function MapStage(p: MapStageProps) {
             perimeter={p.perimeter ?? true}
             opacity={p.opacity}
             clockRef={p.clockRef}
-            onHover={setHover}
+            zoneColors={p.zoneColors}
+            zoneHover={p.zoneHover}
+            onHover={(c) => {
+              setHover(c)
+              p.onHoverCell?.(c)
+            }}
           />
         )}
         {grid && p.response && <ResponseLayerBridge grid={grid} response={p.response} />}

@@ -106,3 +106,112 @@ ${JSON.stringify(body.context, null, 1)}`,
     return send(res, 500, { error: (e as Error).message })
   }
 }
+
+// ---------------------------------------------------------------- post-fire strategy
+
+const ZONE_SECTOR = z.enum(['K', 'KD', 'D', 'GD', 'G', 'GB', 'B', 'KB'])
+const Plan = z.object({
+  summary: z.string().describe('3-5 cümlelik genel strateji: neler yandı, en büyük riskler, öncelik sırası.'),
+  zones: z.array(
+    z.object({
+      sector: ZONE_SECTOR,
+      action: z.enum(['dogal_yenilenme', 'dikim', 'erozyon_onlemi', 'izleme']),
+      species: z.array(z.string()).describe('Önerilen türler, Türkçe ve bilimsel adıyla; izleme ise boş.'),
+      timing: z.string().describe('Ne zaman yapılmalı.'),
+      rationale: z.string().describe('Bu bölge için verideki sayılara dayanan gerekçe.'),
+    }),
+  ),
+  prevention: z.array(z.object({ measure: z.string(), where: z.string(), rationale: z.string() })).describe('Bölgede yeniden yangın çıkmaması ve yayılmaması için önlemler.'),
+  phases: z.array(z.object({ phase: z.enum(['ilk_72_saat', 'ilk_3_ay', 'ilk_yil', 'yil_1_5']), actions: z.array(z.string()) })),
+  monitoring: z.array(z.string()),
+  caveats: z.string().describe('Belirsizlikler ve sahada doğrulanması gerekenler.'),
+})
+
+const RECOVERY_SYSTEM = `Sen Türkiye Akdeniz ve Ege ormanlarında yangın sonrası rehabilitasyon ve ağaçlandırma uzmanısın. ForestGuard simülasyonunda (temsili, eğitim ve planlama amaçlı) sönmüş bir yangının özeti sana gelir: yanan alan 8 bölgeye (yangının başladığı noktaya göre pusula sektörleri: K, KD, D, GD, G, GB, B, KB) ayrılmıştır; her bölge için yanan orman alanı, çam payı, ortalama yükselti, eğim, %30'dan dik alan payı, bakı, yanmamış ormana yakınlık (tohum kaynağı) ve yakın yerleşimler verilir. Ayrıca iklim, yangının ulaştığı yerleşimler, bölgede kayıtlı türler ve müdahale özeti gelir.
+
+Görevin bir yangın sonrası stratejisi hazırlamak:
+- zones: veride geçen HER bölge için tek eylem seç: dogal_yenilenme (kızılçam gibi tohumla kendiliğinden yenilenen ve tohum kaynağı yakın alanlar; koruma ve otlatma yasağı), dikim (tohum kaynağı uzak, maki veya bozuk alan), erozyon_onlemi (dik yamaçlar; önce kontur dal çiti, yamaç ıslahı, sonra dikim), izleme (yanan orman alanı çok küçük). Türleri yükselti kuşağına ve bakıya uygun seç (ör. alçak kesimlerde kızılçam ve maki türleri, yukarıda karaçam, sedir), mümkünse yangına dirençli karışık kuşaklar öner.
+- prevention: bölgede yeniden yangın çıkmaması ve yayılmaması için somut önlemler (yerleşim–orman ara yüzü, yangın emniyet yolları, su depoları, gözetleme, eğitim vb.), nerede uygulanacağıyla.
+- phases: ilk_72_saat, ilk_3_ay, ilk_yil, yil_1_5 için eylem listeleri (soğutma ve güvenlik, erozyon ve sel önlemi, otlatma yasağı, yaban hayatı, dikim, tamamlama, izleme).
+- monitoring: izleme göstergeleri.
+- caveats: sahada doğrulanması gerekenler.
+
+Sayıları ve adları verilen veriden al, uydurma. Metinler Türkçe, kısa ve uygulanabilir olsun.`
+
+export async function recoveryHandler(req: IncomingMessage, res: ServerResponse, next?: () => void) {
+  if (req.method !== 'POST') return next ? next() : send(res, 404, { error: 'not found' })
+  if (!hasKey()) return send(res, 503, { error: 'Sunucuda OPENAI_API_KEY tanımlı değil.' })
+  let body: { context?: unknown }
+  try {
+    body = (await readJson(req)) as { context?: unknown }
+  } catch {
+    return send(res, 400, { error: 'Geçersiz JSON.' })
+  }
+  if (!body.context) return send(res, 400, { error: 'context eksik.' })
+  client ??= new OpenAI()
+  try {
+    const response = await client.responses.parse({
+      model: model(),
+      instructions: RECOVERY_SYSTEM,
+      input: `Yangın sonrası durum:\n${JSON.stringify(body.context, null, 1)}`,
+      reasoning: { effort: 'medium' },
+      max_output_tokens: 12000,
+      text: { format: zodTextFormat(Plan, 'yangin_sonrasi_strateji') },
+    })
+    if (!response.output_parsed) return send(res, 502, { error: `Yanıt şemaya uymadı (durum: ${response.status}).` })
+    return send(res, 200, { output: response.output_parsed, model: model() })
+  } catch (e) {
+    if (e instanceof OpenAI.AuthenticationError) return send(res, 503, { error: 'OpenAI API anahtarı geçersiz.' })
+    if (e instanceof OpenAI.RateLimitError) return send(res, 429, { error: 'OpenAI istek sınırına veya kotaya takıldı.' })
+    if (e instanceof OpenAI.APIError) return send(res, 502, { error: `OpenAI API hatası ${e.status ?? ''}: ${e.message}` })
+    return send(res, 500, { error: (e as Error).message })
+  }
+}
+
+// ---------------------------------------------------------------- prevention ("Bugün ne yapabiliriz?")
+
+const Prevention = z.object({
+  summary: z.string().describe('3-4 cümle: ilk yangından çıkan ders ve seçilen önlem paketinin mantığı.'),
+  selected: z.array(z.object({ id: z.string(), priority: z.number().int(), rationale: z.string() })).describe('Seçilen aday önlemlerin kimlikleri (yalnızca verilenlerden), öncelik sırası (1 = en önce) ve gerekçesi.'),
+  expected_effect: z.string().describe('Beklenen etki, nitel olarak.'),
+  caveats: z.string(),
+})
+
+const PREVENTION_SYSTEM = `Sen orman yangını önleme ve risk azaltma uzmanısın. ForestGuard simülasyonunda (temsili, eğitim ve planlama amaçlı) bir yangın yaşandı. Sana ilk yangının özeti ve bugünden uygulanabilecek aday önlemler gelir: her adayın kimliği, türü, yeri, alanı, temsili maliyeti (bin TL) ve ilk yangında o yerde ne olduğu (evidence).
+
+Görevin bir sonraki yangında tahribatı en çok azaltacak önlem paketini seçmek:
+- Yalnızca verilen aday kimliklerinden seç; 3 ile 8 arası önlem seç.
+- Can güvenliğini (yangının ulaştığı yerleşimler) ve yangının ana yayılma eksenini önceliklendir; erken tespit ve ilk müdahale güçlendirmesini değerlendir.
+- Maliyet/etki dengesini gözet; gereksiz tekrar eden önlemleri seçme.
+- Her seçim için ilk yangındaki sayılara dayanan kısa gerekçe yaz.
+Seçtiğin önlemler simülasyonda uygulanıp aynı yangın yeniden çalıştırılacak ve sonuç karşılaştırılacak. Metinler Türkçe, kısa ve somut olsun; sayıları uydurma.`
+
+export async function preventionHandler(req: IncomingMessage, res: ServerResponse, next?: () => void) {
+  if (req.method !== 'POST') return next ? next() : send(res, 404, { error: 'not found' })
+  if (!hasKey()) return send(res, 503, { error: 'Sunucuda OPENAI_API_KEY tanımlı değil.' })
+  let body: { context?: unknown }
+  try {
+    body = (await readJson(req)) as { context?: unknown }
+  } catch {
+    return send(res, 400, { error: 'Geçersiz JSON.' })
+  }
+  if (!body.context) return send(res, 400, { error: 'context eksik.' })
+  client ??= new OpenAI()
+  try {
+    const response = await client.responses.parse({
+      model: model(),
+      instructions: PREVENTION_SYSTEM,
+      input: `İlk yangın ve aday önlemler:\n${JSON.stringify(body.context, null, 1)}`,
+      reasoning: { effort: 'medium' },
+      max_output_tokens: 6000,
+      text: { format: zodTextFormat(Prevention, 'onlem_paketi') },
+    })
+    if (!response.output_parsed) return send(res, 502, { error: `Yanıt şemaya uymadı (durum: ${response.status}).` })
+    return send(res, 200, { output: response.output_parsed, model: model() })
+  } catch (e) {
+    if (e instanceof OpenAI.AuthenticationError) return send(res, 503, { error: 'OpenAI API anahtarı geçersiz.' })
+    if (e instanceof OpenAI.RateLimitError) return send(res, 429, { error: 'OpenAI istek sınırına veya kotaya takıldı.' })
+    if (e instanceof OpenAI.APIError) return send(res, 502, { error: `OpenAI API hatası ${e.status ?? ''}: ${e.message}` })
+    return send(res, 500, { error: (e as Error).message })
+  }
+}

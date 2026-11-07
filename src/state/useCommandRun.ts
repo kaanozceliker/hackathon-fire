@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ResponseRun, ruleCommander } from '../sim/response'
+import { ResponseRun, ruleCommander, type RunOptions } from '../sim/response'
 import { STEP_MIN } from '../sim/engine'
 import { askCommander } from '../lib/commanderClient'
 import type { Infrastructure } from '../data/infrastructure'
@@ -54,10 +54,10 @@ export function useCommandRun() {
   }, [])
 
   const start = useCallback(
-    (grid: SimResult['grid'], config: SimConfig, settlements: Settlement[], infra: Infrastructure, responseStartMin: number, mode: CommanderMode) => {
+    (grid: SimResult['grid'], config: SimConfig, settlements: Settlement[], infra: Infrastructure, responseStartMin: number, mode: CommanderMode, opts?: RunOptions) => {
       abortRef.current?.abort()
       modeRef.current = mode
-      runRef.current = new ResponseRun(grid, { ...config, durationH: 72 }, settlements, infra, responseStartMin)
+      runRef.current = new ResponseRun(grid, { ...config, durationH: 72 }, settlements, infra, responseStartMin, opts)
       deciding.current = false
       setThinking(false)
       setBaseline(null)

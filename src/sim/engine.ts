@@ -158,6 +158,11 @@ export class FireStepper {
       }
   }
 
+  /** Prevention measures: scales the fuel of each cell (1 = unchanged). Call before the first step. */
+  scaleFuel(mult: Float32Array) {
+    this.fuel = this.fuel.map((f, i) => f * mult[i])
+  }
+
   /** A copy that can be run ahead (forecasts) without touching this one. */
   clone(): FireStepper {
     return new FireStepper(this.grid, this.config, this)

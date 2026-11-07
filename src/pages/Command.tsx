@@ -1,8 +1,8 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import L from 'leaflet'
-import { Marker, Tooltip, useMap } from 'react-leaflet'
+import { ImageOverlay, Marker, Popup, Tooltip, useMap } from 'react-leaflet'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Bot, ChevronDown, ChevronRight, Cpu, Helicopter, Loader2, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Truck } from 'lucide-react'
+import { Bot, Lightbulb, Sprout, ChevronDown, ChevronRight, Cpu, Helicopter, Loader2, Pause, Play, Plane, Save, Square, RotateCcw, Tractor, Truck } from 'lucide-react'
 import { MapStage, WindArrow } from '../components/MapStage'
 // the 3D view (MapTiler SDK, ~1.3 MB) loads only when chosen
 const Map3D = lazy(() => import('../components/Map3D').then((m) => ({ default: m.Map3D })))
@@ -18,7 +18,11 @@ import { weatherAt } from '../sim/weather'
 import type { Decision, ResourceKind, ResourceStatus, ResponseRecord, SimResult } from '../sim/types'
 import { useStore } from '../state/store'
 import { useCommandRun, type CommanderMode } from '../state/useCommandRun'
-import { aiHealth, type AiHealth } from '../lib/commanderClient'
+import { aiHealth, askPrevention, askRecovery, type AiHealth } from '../lib/commanderClient'
+import { ACTION_INFO, PHASE_LABEL, recoveryContext, ruleRecovery, zoneCentroids, zoneOfCell, type RecoveryContext, type RecoveryPlan } from '../sim/recovery'
+import { cellCenter, cellOf, gridBounds } from '../sim/terrain'
+import { MEASURE_INFO, buildCandidates, measureSize, measuresToRun, preventionContext, rulePrevention, type Measure, type PreventionPlan } from '../sim/prevention'
+import { SECTORS } from '../sim/types'
 
 const T = (step: number) => `T+${fmtDuration(step * 10)}`
 /** Playback time, in minutes (moves in 15-minute ticks). */
@@ -90,6 +94,65 @@ export function Command() {
   const [health, setHealth] = useState<AiHealth | null>(null)
   const [compare, setCompare] = useState(false)
   const [view, setView] = useState<'2d' | '3d'>('2d')
+  const [plan, setPlan] = useState<{ plan: RecoveryPlan; ctx: RecoveryContext; source: 'ai' | 'rules'; model?: string; reason?: string } | null>(null)
+  const [hoverZone, setHoverZone] = useState<number | null>(null)
+  const [openZone, setOpenZone] = useState<{ zone: number; at: [number, number] } | null>(null)
+  const [planBusy, setPlanBusy] = useState(false)
+  const [showZones, setShowZones] = useState(true)
+  // "Bugün ne yapabiliriz?": prevention package, the first run kept for comparison, and the before/after map
+  const [prev, setPrev] = useState<{ cands: Measure[]; plan: PreventionPlan; source: 'ai' | 'rules'; model?: string; reason?: string; startMin: number } | null>(null)
+  const [prevBusy, setPrevBusy] = useState(false)
+  const [before, setBefore] = useState<SimResult | null>(null)
+  const [compareBefore, setCompareBefore] = useState(false)
+  const [openMeasure, setOpenMeasure] = useState<string | null>(null)
+  // during the rerun only the chosen measures stay on the map
+  const shownMeasures = useMemo(() => (prev ? (before ? prev.cands.filter((m) => prev.plan.selected.some((x) => x.id === m.id)) : prev.cands) : []), [prev, before])
+  const makePrevention = async () => {
+    const l = run.live
+    if (!l) return
+    setPrevBusy(true)
+    const cands = buildCandidates(l, infra)
+    const ctx = preventionContext(l, cands, startMin)
+    try {
+      const r = await askPrevention(ctx)
+      const valid = r.output.selected.filter((x) => cands.some((c) => c.id === x.id))
+      setPrev({ cands, plan: { ...r.output, selected: valid }, source: 'ai', model: r.model, startMin })
+    } catch (e) {
+      setPrev({ cands, plan: rulePrevention(ctx), source: 'rules', reason: (e as Error).message, startMin })
+    } finally {
+      setPrevBusy(false)
+    }
+  }
+  const startWithMeasures = () => {
+    const l = run.live
+    if (!l || !prev) return
+    const { opts, startGainMin } = measuresToRun(prev.cands, prev.plan.selected.map((x) => x.id), grid, infra)
+    setBefore(l)
+    setCompare(false)
+    setCompareBefore(false)
+    setSaved(false)
+    run.start(grid, config, region.settlements, infra, Math.max(0, prev.startMin - startGainMin), mode, opts)
+  }
+  useEffect(() => {
+    setPlan(null)
+    setOpenZone(null)
+  }, [run.live?.response?.startStep, run.status === 'running'])
+  const makePlan = async () => {
+    const l = run.live
+    if (!l) return
+    setPlanBusy(true)
+    const ctx = recoveryContext(l)
+    try {
+      const r = await askRecovery(ctx)
+      setPlan({ plan: r.output, ctx, source: 'ai', model: r.model })
+    } catch (e) {
+      setPlan({ plan: ruleRecovery(ctx), ctx, source: 'rules', reason: (e as Error).message })
+    } finally {
+      setPlanBusy(false)
+      setShowZones(true)
+    }
+  }
+  const zoneColors = plan && showZones && !prev ? SECTORS.map((sec) => { const z = plan.plan.zones.find((x) => x.sector === sec); return z ? ACTION_INFO[z.action].color : null }) : null
   const [selected, setSelected] = useState<number | null>(null)
   const [saved, setSaved] = useState(false)
 
@@ -112,6 +175,9 @@ export function Command() {
     setSelected(null)
     setCompare(false)
     setSaved(false)
+    setPrev(null)
+    setBefore(null)
+    setCompareBefore(false)
     run.start(grid, config, region.settlements, infra, startMin, mode)
   }
   const save = () => {
@@ -188,16 +254,31 @@ export function Command() {
           <MapStage
             grid={grid}
             result={live}
-            resultB={compare && run.baseline ? run.baseline : null}
+            resultB={compareBefore && before ? before : compare && run.baseline ? run.baseline : null}
             step={head}
             clockRef={live ? run.clockRef : undefined}
-            mode={compare && run.baseline ? 'diff' : live ? 'fire' : 'fuel'}
+            zoneColors={zoneColors}
+            zoneHover={zoneColors ? hoverZone : null}
+            onHoverCell={(c) => {
+              const z = zoneColors && live && c ? zoneOfCell(live, cellOf(grid, c.lat, c.lon)) : -1
+              const v = z >= 0 && zoneColors?.[z] ? z : null
+              setHoverZone((prev) => (prev === v ? prev : v))
+            }}
+            pick={!!zoneColors}
+            onMapClick={(lat, lon) => {
+              if (!zoneColors || !live) return
+              const z = zoneOfCell(live, cellOf(grid, lat, lon))
+              setOpenZone(z >= 0 && zoneColors[z] ? { zone: z, at: [lat, lon] } : null)
+            }}
+            mode={(compareBefore && before) || (compare && run.baseline) ? 'diff' : live ? 'fire' : 'fuel'}
             fitGrid
             fitKey={config.areaId}
             hud
             response={rec && !compare ? { record: rec, step: head } : null}
             legend={
-              compare ? (
+              compareBefore && before ? (
+                <Legend title="Önlemlerin etkisi" items={[{ color: 'rgba(217,89,38,.85)', label: 'Önlemler sayesinde yanmadı' }, { color: 'rgba(57,135,229,.8)', label: 'Yalnızca önlemli senaryoda yandı' }, { color: 'rgba(235,235,225,.55)', label: 'İki durumda da yandı' }]} />
+              ) : compare ? (
                 <Legend title="Müdahalenin etkisi" items={[{ color: 'rgba(217,89,38,.85)', label: 'Müdahale sayesinde yanmadı' }, { color: 'rgba(235,235,225,.55)', label: 'İki durumda da yandı' }]} />
               ) : (
                 <Legend title="Müdahale" items={[
@@ -213,13 +294,22 @@ export function Command() {
             }
             controls={
               done && run.baseline ? (
-                <button onClick={() => setCompare(!compare)} aria-pressed={compare} className={`border border-line2 bg-bg/90 px-2.5 py-1 text-[12px] font-medium ${compare ? 'text-forest' : 'text-muted hover:text-ink'}`}>
-                  {compare ? 'Müdahaleyi göster' : 'Müdahalesiz hâliyle karşılaştır'}
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <button onClick={() => { setCompare(!compare); setCompareBefore(false) }} aria-pressed={compare} className={`border border-line2 bg-bg/90 px-2.5 py-1 text-[12px] font-medium ${compare ? 'text-forest' : 'text-muted hover:text-ink'}`}>
+                    {compare ? 'Müdahaleyi göster' : 'Müdahalesiz hâliyle karşılaştır'}
+                  </button>
+                  {before && (
+                    <button onClick={() => { setCompareBefore(!compareBefore); setCompare(false) }} aria-pressed={compareBefore} className={`border border-line2 bg-bg/90 px-2.5 py-1 text-[12px] font-medium ${compareBefore ? 'text-forest' : 'text-muted hover:text-ink'}`}>
+                      {compareBefore ? 'Önlemli senaryoyu göster' : 'Önlem öncesiyle karşılaştır'}
+                    </button>
+                  )}
+                </div>
               ) : undefined
             }
           >
             {rec && !compare && <UnitsLayer rec={rec} clockRef={run.clockRef} />}
+            {prev && !compareBefore && <MeasuresOverlay grid={grid} measures={shownMeasures} plan={prev.plan} open={openMeasure} setOpen={setOpenMeasure} faded={!!before} />}
+            {plan && zoneColors && live && <ZoneOverlay result={live} plan={plan.plan} ctx={plan.ctx} open={openZone} setOpen={setOpenZone} />}
             {region.settlements.map((st) => {
               const ev = rec?.evacuations.find((e) => e.settlementId === st.id && e.startStep <= head)
               const label = !ev ? '' : head >= ev.doneStep ? ' · tahliye edildi' : ` · tahliye %${Math.round(((head - ev.startStep) / Math.max(1, ev.doneStep - ev.startStep)) * 100)}`
@@ -286,9 +376,24 @@ export function Command() {
               {' '}Yangının ulaştığı yerleşim: {live.impacts.filter((i) => i.arrivalMin !== null).length} (müdahalesiz {rec.baseline.settlementsReached}).
             </p>
             <div className="mt-2 text-[12px] text-muted">{rec.decisions.length} karar · {rec.decisions.filter((d) => d.source === 'ai').length} tanesi ChatGPT'den · {rec.drops.length} su atışı · {rec.evacuations.length} tahliye</div>
-            <button onClick={save} disabled={saved} className="mt-2.5 flex items-center gap-1.5 border border-forest/60 px-2.5 py-1.5 text-[12px] font-semibold text-forest hover:bg-forest-dim/40 disabled:opacity-50"><Save size={13} /> {saved ? 'Kaydedildi' : 'Analize kaydet'}</button>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <button onClick={save} disabled={saved} className="flex items-center gap-1.5 border border-forest/60 px-2.5 py-1.5 text-[12px] font-semibold text-forest hover:bg-forest-dim/40 disabled:opacity-50"><Save size={13} /> {saved ? 'Kaydedildi' : 'Analize kaydet'}</button>
+              {rec.extinguishedStep !== null && (
+                <button onClick={makePlan} disabled={planBusy} className="flex items-center gap-1.5 bg-forest px-2.5 py-1.5 text-[12px] font-semibold text-bg hover:bg-forest/85 disabled:opacity-60">
+                  {planBusy ? <Loader2 size={13} className="animate-spin" /> : <Sprout size={13} />} {plan ? 'Stratejiyi yeniden oluştur' : 'Yangın sonrası stratejisi oluştur'}
+                </button>
+              )}
+            </div>
           </Panel>
         )}
+        {before && done && live && <ComparisonPanel before={before} after={live} />}
+        {plan && !before && (
+          <button onClick={makePrevention} disabled={prevBusy} className="flex w-full items-center justify-center gap-2 border border-amber/60 bg-amber/10 px-3 py-2 text-[13px] font-semibold text-amber hover:bg-amber/20 disabled:opacity-60">
+            {prevBusy ? <Loader2 size={14} className="animate-spin" /> : <Lightbulb size={14} />} {prev ? 'Önlemleri yeniden belirle' : 'Bugün ne yapabiliriz?'}
+          </button>
+        )}
+        {prev && <PreventionPanel prev={prev} cellM={grid.cellM} canRun={done && !before} onRun={startWithMeasures} onOpen={setOpenMeasure} open={openMeasure} />}
+        {plan && !prev && <StrategyPanel plan={plan} showZones={showZones} onToggleZones={() => setShowZones(!showZones)} />}
         <Panel title="Komuta günlüğü" pad={false} action={<span className="text-[11px] text-muted">{decisions.length} karar</span>}>
           {decisions.length === 0 ? (
             <p className="p-3 text-[13px] text-muted">{run.status === 'idle' ? 'Kararlar burada, verildikleri sırayla görünecek.' : `İlk karar ${rec ? T(rec.startStep) : ''}'da verilecek.`}</p>
@@ -382,6 +487,292 @@ function UnitsLayer({ rec, clockRef }: { rec: ResponseRecord; clockRef: { curren
     }
   }, [map, clockRef])
   return null
+}
+
+/** Labels on each strategy zone and the card that opens over the map when a zone is clicked. */
+function ZoneOverlay({ result, plan, ctx, open, setOpen }: { result: SimResult; plan: RecoveryPlan; ctx: RecoveryContext; open: { zone: number; at: [number, number] } | null; setOpen: (v: { zone: number; at: [number, number] } | null) => void }) {
+  const centres = useMemo(() => zoneCentroids(result), [result])
+  const icons = useMemo(
+    () =>
+      SECTORS.map((sec) => {
+        const z = plan.zones.find((x) => x.sector === sec)
+        if (!z) return null
+        const info = ACTION_INFO[z.action]
+        return L.divIcon({
+          html: `<div class="fg-zone-tag" style="border-color:${info.color}"><span style="background:${info.color}"></span>${sec} · ${info.label.split(' (')[0]}</div>`,
+          className: 'fg-icon',
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        })
+      }),
+    [plan],
+  )
+  const sel = open ? plan.zones.find((x) => x.sector === SECTORS[open.zone]) : null
+  const stats = open ? ctx.zones.find((x) => x.sector === SECTORS[open.zone]) : null
+  return (
+    <>
+      {SECTORS.map((sec, k) => {
+        const c = centres[k]
+        const ic = icons[k]
+        if (!c || !ic) return null
+        return <Marker key={sec} position={c} icon={ic} zIndexOffset={800} eventHandlers={{ click: () => setOpen({ zone: k, at: c }) }} keyboard={false} />
+      })}
+      {open && sel && (
+        <Popup position={open.at} className="fg-popup" maxWidth={330} minWidth={280} eventHandlers={{ remove: () => setOpen(null) }}>
+          <div className="text-[12.5px] leading-snug">
+            <div className="mb-1 flex items-center gap-2 text-[14px] font-semibold">
+              <span className="h-3 w-3 shrink-0" style={{ background: ACTION_INFO[sel.action].color }} />
+              {sel.sector} bölgesi
+            </div>
+            <div className="mb-2 font-medium" style={{ color: ACTION_INFO[sel.action].color }}>{ACTION_INFO[sel.action].label}</div>
+            {stats && (
+              <div className="mb-2 grid grid-cols-3 gap-x-2 gap-y-1 text-[11.5px]">
+                <span><b>{stats.burned_ha}</b> ha yandı</span>
+                <span>eğim <b>%{stats.mean_slope_pct}</b></span>
+                <span><b>{stats.mean_elevation_m}</b> m</span>
+                <span>çam <b>%{stats.pine_share_pct}</b></span>
+                <span>dik alan <b>%{stats.steep_share_pct}</b></span>
+                <span>tohum kaynağı <b>%{stats.seed_source_nearby_pct}</b></span>
+              </div>
+            )}
+            {sel.species.length > 0 && <div className="mb-1"><b>Türler:</b> {sel.species.join(', ')}</div>}
+            <div className="mb-1"><b>Zamanlama:</b> {sel.timing}</div>
+            <div className="opacity-80">{sel.rationale}</div>
+            {stats && stats.settlements_within_1km.length > 0 && <div className="mt-1.5 text-[11.5px] opacity-80">Yakın yerleşim: {stats.settlements_within_1km.join(', ')}</div>}
+          </div>
+        </Popup>
+      )}
+    </>
+  )
+}
+
+const SCALE_M = 6 // texture pixels per cell for the measure patterns
+
+/** Paints one measure's cells with its own pattern (stripes, cross-hatch, dots) and a solid outline. */
+function paintMeasure(ctx: CanvasRenderingContext2D, grid: SimResult['grid'], m: Measure, on: boolean) {
+  const set = new Set(m.cells)
+  const color = MEASURE_INFO[m.type].color
+  const S = SCALE_M
+  ctx.save()
+  ctx.beginPath()
+  for (const i of m.cells) ctx.rect((i % grid.cols) * S, ((i / grid.cols) | 0) * S, S, S)
+  ctx.clip()
+  ctx.globalAlpha = on ? 0.32 : 0.12
+  ctx.fillStyle = color
+  ctx.fillRect(0, 0, grid.cols * S, grid.rows * S)
+  ctx.globalAlpha = on ? 0.95 : 0.35
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
+  ctx.lineWidth = 1.4
+  ctx.beginPath()
+  const W = grid.cols * S
+  const H = grid.rows * S
+  if (m.type === 'emniyet_seridi' || m.type === 'aralama')
+    for (let k = -H; k < W; k += 5) {
+      ctx.moveTo(k, H)
+      ctx.lineTo(k + H, 0)
+      if (m.type === 'aralama') {
+        ctx.moveTo(k, 0)
+        ctx.lineTo(k + H, H)
+      }
+    }
+  ctx.stroke()
+  if (m.type === 'yerlesim_temizligi')
+    for (let y = 2; y < H; y += 5) for (let x = 2 + ((y / 5) % 2) * 2.5; x < W; x += 5) ctx.fillRect(x, y, 1.6, 1.6)
+  ctx.restore()
+  // outline: cell edges facing outside the measure
+  ctx.globalAlpha = on ? 1 : 0.4
+  ctx.strokeStyle = color
+  ctx.lineWidth = on ? 1.6 : 1
+  ctx.beginPath()
+  for (const i of m.cells) {
+    const x = (i % grid.cols) * S
+    const y = ((i / grid.cols) | 0) * S
+    if (!set.has(i - 1) || i % grid.cols === 0) { ctx.moveTo(x, y); ctx.lineTo(x, y + S) }
+    if (!set.has(i + 1) || i % grid.cols === grid.cols - 1) { ctx.moveTo(x + S, y); ctx.lineTo(x + S, y + S) }
+    if (!set.has(i - grid.cols)) { ctx.moveTo(x, y); ctx.lineTo(x + S, y) }
+    if (!set.has(i + grid.cols)) { ctx.moveTo(x, y + S); ctx.lineTo(x + S, y + S) }
+  }
+  ctx.stroke()
+  ctx.globalAlpha = 1
+}
+
+/** Prevention measures on the map: patterned areas, numbered tags, and a card describing the measure on click. */
+function MeasuresOverlay({ grid, measures, plan, open, setOpen, faded = false }: { grid: SimResult['grid']; measures: Measure[]; plan: PreventionPlan; open: string | null; setOpen: (id: string | null) => void; faded?: boolean }) {
+  const rank = new Map(plan.selected.map((x) => [x.id, x]))
+  const url = useMemo(() => {
+    const c = document.createElement('canvas')
+    c.width = grid.cols * SCALE_M
+    c.height = grid.rows * SCALE_M
+    const ctx = c.getContext('2d')!
+    for (const m of measures) if (m.cells.length && !rank.has(m.id)) paintMeasure(ctx, grid, m, false)
+    for (const m of measures) if (m.cells.length && rank.has(m.id)) paintMeasure(ctx, grid, m, true)
+    return c.toDataURL()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grid, measures, plan])
+  const anchor = (m: Measure): [number, number] => {
+    if (m.point) return m.point
+    let a = 0
+    let b = 0
+    for (const i of m.cells) {
+      const p = cellCenter(grid, i)
+      a += p[0]
+      b += p[1]
+    }
+    return [a / m.cells.length, b / m.cells.length]
+  }
+  const tag = (m: Measure) => {
+    const r = rank.get(m.id)
+    const info = MEASURE_INFO[m.type]
+    return L.divIcon({
+      html: `<div class="fg-zone-tag${r ? '' : ' fg-dim'}${faded ? ' fg-faded' : ''}" style="border-color:${info.color}"><span style="background:${info.color}"></span>${r ? `${r.priority} · ` : ''}${info.short}</div>`,
+      className: 'fg-icon',
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    })
+  }
+  const sel = open ? measures.find((m) => m.id === open) : null
+  const selRank = sel ? rank.get(sel.id) : undefined
+  return (
+    <>
+      {/* during the rerun the measures step back so the fire stays in front */}
+      <ImageOverlay url={url} bounds={gridBounds(grid)} zIndex={faded ? 350 : 450} opacity={faded ? 0.3 : 1} />
+      {measures.map((m) => (
+        <Marker key={m.id} position={anchor(m)} icon={tag(m)} zIndexOffset={faded ? 0 : rank.has(m.id) ? 900 : 700} eventHandlers={{ click: () => setOpen(m.id) }} keyboard={false} />
+      ))}
+      {sel && (
+        <Popup position={anchor(sel)} className="fg-popup" maxWidth={340} minWidth={290} eventHandlers={{ remove: () => setOpen(null) }}>
+          <div className="text-[12.5px] leading-snug">
+            <div className="mb-0.5 flex items-center gap-2 text-[14px] font-semibold">
+              <span className="h-3 w-3 shrink-0" style={{ background: MEASURE_INFO[sel.type].color }} />
+              {selRank ? `${selRank.priority}. ` : ''}{sel.title}
+            </div>
+            <div className="mb-2 text-[11.5px] opacity-75">{sel.where}{measureSize(sel, grid.cellM) ? ` · ${measureSize(sel, grid.cellM)}` : ''} · ~{(sel.costK / 1000).toFixed(1)} milyon TL{selRank ? '' : ' · seçilmedi'}</div>
+            <div className="mb-1.5"><b>Sahada ne yapılır:</b> {MEASURE_INFO[sel.type].what}</div>
+            <div className="mb-1.5"><b>Simülasyondaki etkisi:</b> {MEASURE_INFO[sel.type].effect}</div>
+            <div className="mb-1.5"><b>İlk yangında:</b> {sel.evidence}</div>
+            {selRank && <div className="opacity-85"><b>Neden seçildi:</b> {selRank.rationale}</div>}
+          </div>
+        </Popup>
+      )}
+    </>
+  )
+}
+
+function PreventionPanel({ prev, cellM, canRun, onRun, onOpen, open }: { prev: { cands: Measure[]; plan: PreventionPlan; source: 'ai' | 'rules'; model?: string; reason?: string }; cellM: number; canRun: boolean; onRun: () => void; onOpen: (id: string) => void; open: string | null }) {
+  const chosen = [...prev.plan.selected].sort((a, b) => a.priority - b.priority).map((x) => ({ x, m: prev.cands.find((c) => c.id === x.id)! })).filter((r) => r.m)
+  const cost = chosen.reduce((s, r) => s + r.m.costK, 0)
+  return (
+    <Panel title="Bugün ne yapabiliriz?" action={<span className={`flex items-center gap-1 text-[11px] ${prev.source === 'ai' ? 'text-water' : 'text-muted'}`}>{prev.source === 'ai' ? <Bot size={12} /> : <Cpu size={12} />}{prev.source === 'ai' ? `ChatGPT${prev.model ? ` · ${prev.model}` : ''}` : 'Kural tabanlı'}</span>}>
+      {prev.reason && <p className="mb-2 text-[11.5px] text-amber">Yapay zekaya ulaşılamadı: {prev.reason}</p>}
+      <p className="text-[13px] leading-snug">{prev.plan.summary}</p>
+      <div className="mt-2 grid grid-cols-3 gap-2 border-y border-line py-2">
+        <Stat label="Önlem" value={chosen.length} />
+        <Stat label="Temsili maliyet" value={(cost / 1000).toFixed(1)} unit="M TL" />
+        <Stat label="Temizlenen alan" value={Math.round(chosen.reduce((s, r) => s + r.m.cells.length, 0) * cellM * cellM / 10000)} unit="ha" />
+      </div>
+      <ol className="mt-2 space-y-2">
+        {chosen.map(({ x, m }) => (
+          <li key={m.id}>
+            <button onClick={() => onOpen(m.id)} aria-expanded={open === m.id} className={`w-full border-l-[3px] py-1 pl-2.5 text-left text-[12.5px] leading-snug hover:bg-panel2 ${open === m.id ? 'bg-panel2' : ''}`} style={{ borderColor: MEASURE_INFO[m.type].color }}>
+              <div className="flex items-baseline justify-between gap-2"><b>{x.priority}. {m.title}</b><span className="shrink-0 text-[11.5px] text-muted">~{(m.costK / 1000).toFixed(1)} M TL</span></div>
+              <div className="text-[11.5px] text-muted">{m.where}{measureSize(m, cellM) ? ` · ${measureSize(m, cellM)}` : ''}</div>
+              <div className="mt-0.5 text-[12px]">{MEASURE_INFO[m.type].what.split('. ')[0]}.</div>
+              <div className="mt-0.5 text-[11.5px] text-amber">{x.rationale}</div>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-[11.5px] text-muted">Ayrıntı için bir önleme ya da haritadaki etiketine tıklayın. {prev.plan.expected_effect}</p>
+      {canRun && (
+        <button onClick={onRun} className="mt-2.5 flex w-full items-center justify-center gap-1.5 bg-fire px-3 py-2 text-[13px] font-semibold text-white hover:bg-fire/90"><Play size={14} /> Önlemlerle simülasyonu başlat</button>
+      )}
+      <p className="mt-2 text-[11px] leading-snug text-muted">{prev.plan.caveats}</p>
+    </Panel>
+  )
+}
+
+/** First run vs the run with prevention measures. */
+function ComparisonPanel({ before, after }: { before: SimResult; after: SimResult }) {
+  const row = (r: SimResult) => {
+    const f = r.series[r.series.length - 1]
+    const rr = r.response
+    return {
+      ha: f.affectedHa,
+      forest: f.forestHa,
+      settl: r.impacts.filter((i) => i.arrivalMin !== null).length,
+      out: rr?.extinguishedStep ?? null,
+      evac: rr ? rr.evacuations.reduce((s, e) => s + e.population, 0) : 0,
+    }
+  }
+  const a = row(before)
+  const b = row(after)
+  const pct = a.ha ? Math.round(((a.ha - b.ha) / a.ha) * 100) : 0
+  const line = (label: string, x: string, y: string, better: boolean | null) => (
+    <tr className="border-b border-line last:border-b-0">
+      <th scope="row" className="py-1.5 pr-2 text-left text-[12.5px] font-normal text-muted">{label}</th>
+      <td className="px-2 py-1.5 text-right text-[13px]">{x}</td>
+      <td className={`px-2 py-1.5 text-right text-[13px] font-semibold ${better === null ? '' : better ? 'text-forest' : 'text-fire'}`}>{y}</td>
+    </tr>
+  )
+  return (
+    <Panel title="Önlem öncesi ve sonrası">
+      <p className="mb-2 text-[13px] leading-snug">
+        Önlemlerle yanan alan <b className={pct >= 0 ? 'text-forest' : 'text-fire'}>%{Math.abs(pct)} {pct >= 0 ? 'azaldı' : 'arttı'}</b>: {fmtHa(a.ha)} ha yerine {fmtHa(b.ha)} ha.
+      </p>
+      <table className="w-full">
+        <thead><tr className="border-b border-line2 text-[11.5px] text-muted"><th /><th className="px-2 pb-1 text-right font-medium">İlk yangın</th><th className="px-2 pb-1 text-right font-medium">Önlemlerle</th></tr></thead>
+        <tbody>
+          {line('Yanan alan', `${fmtHa(a.ha)} ha`, `${fmtHa(b.ha)} ha`, b.ha <= a.ha)}
+          {line('Yanan orman', `${fmtHa(a.forest)} ha`, `${fmtHa(b.forest)} ha`, b.forest <= a.forest)}
+          {line('Ulaşılan yerleşim', String(a.settl), String(b.settl), b.settl <= a.settl)}
+          {line('Söndürme', a.out === null ? '–' : T(a.out), b.out === null ? '–' : T(b.out), a.out !== null && b.out !== null ? b.out <= a.out : null)}
+          {line('Tahliye edilen', a.evac.toLocaleString('en-US'), b.evac.toLocaleString('en-US'), b.evac <= a.evac)}
+        </tbody>
+      </table>
+      <p className="mt-2 text-[11.5px] text-muted">Aynı tutuşma noktası, hava ve komutan; yalnızca önlemler farklı. Haritada "Önlem öncesiyle karşılaştır" ile farkı görün.</p>
+    </Panel>
+  )
+}
+
+function StrategyPanel({ plan, showZones, onToggleZones }: { plan: { plan: RecoveryPlan; ctx: RecoveryContext; source: 'ai' | 'rules'; model?: string; reason?: string }; showZones: boolean; onToggleZones: () => void }) {
+  const p = plan.plan
+  return (
+    <Panel title="Yangın sonrası stratejisi" action={<span className={`flex items-center gap-1 text-[11px] ${plan.source === 'ai' ? 'text-water' : 'text-muted'}`}>{plan.source === 'ai' ? <Bot size={12} /> : <Cpu size={12} />}{plan.source === 'ai' ? `ChatGPT${plan.model ? ` · ${plan.model}` : ''}` : 'Kural tabanlı'}</span>}>
+      {plan.reason && <p className="mb-2 text-[11.5px] text-amber">Yapay zekaya ulaşılamadı: {plan.reason}</p>}
+      <p className="text-[13px] leading-snug">{p.summary}</p>
+      <div className="mt-3 flex items-center justify-between">
+        <h4 className="text-[12.5px] font-semibold">Bölgeler <span className="font-normal text-muted">· haritada bölgeye tıklayın</span></h4>
+        <button onClick={onToggleZones} aria-pressed={showZones} className={`text-[11.5px] ${showZones ? 'text-forest' : 'text-muted hover:text-ink'}`}>{showZones ? 'Haritada gösteriliyor' : 'Haritada göster'}</button>
+      </div>
+      <ul className="mt-1 space-y-2">
+        {p.zones.map((z) => (
+          <li key={z.sector} className="border-l-2 pl-2 text-[12.5px] leading-snug" style={{ borderColor: ACTION_INFO[z.action].color }}>
+            <div><b>{z.sector}</b> · <span style={{ color: ACTION_INFO[z.action].color }}>{ACTION_INFO[z.action].label}</span></div>
+            {z.species.length > 0 && <div className="text-[12px]">{z.species.join(', ')}</div>}
+            <div className="text-[11.5px] text-muted">{z.timing} · {z.rationale}</div>
+          </li>
+        ))}
+      </ul>
+      <h4 className="mt-3 text-[12.5px] font-semibold">Yeniden yangın çıkmaması için</h4>
+      <ul className="mt-1 space-y-1.5">
+        {p.prevention.map((x, i) => (
+          <li key={i} className="text-[12.5px] leading-snug"><b className="font-medium">{x.measure}</b> <span className="text-muted">({x.where})</span><span className="block text-[11.5px] text-muted">{x.rationale}</span></li>
+        ))}
+      </ul>
+      <h4 className="mt-3 text-[12.5px] font-semibold">Yangın sonrası aksiyonlar</h4>
+      <ol className="mt-1 space-y-2">
+        {p.phases.map((ph) => (
+          <li key={ph.phase} className="text-[12.5px]">
+            <div className="font-medium text-forest">{PHASE_LABEL[ph.phase]}</div>
+            <ul className="list-disc space-y-0.5 pl-4 leading-snug">{ph.actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+          </li>
+        ))}
+      </ol>
+      {p.monitoring.length > 0 && <><h4 className="mt-3 text-[12.5px] font-semibold">İzleme</h4><ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12.5px] leading-snug">{p.monitoring.map((m, i) => <li key={i}>{m}</li>)}</ul></>}
+      <p className="mt-3 text-[11.5px] leading-snug text-muted">{p.caveats}</p>
+    </Panel>
+  )
 }
 
 function DecisionCard({ d, open, onToggle }: { d: Decision; open: boolean; onToggle: () => void }) {

@@ -10,13 +10,23 @@ function commanderApi(): Plugin {
   const handler: Handler = (req, res, next) => {
     import('./server/commander').then(({ commanderHandler }) => commanderHandler(req, res, next)).catch(next)
   }
+  const prevention: Handler = (req, res, next) => {
+    import('./server/commander').then(({ preventionHandler }) => preventionHandler(req, res, next)).catch(next)
+  }
+  const recovery: Handler = (req, res, next) => {
+    import('./server/commander').then(({ recoveryHandler }) => recoveryHandler(req, res, next)).catch(next)
+  }
   return {
     name: 'forestguard-commander-api',
     configureServer: (server) => {
       server.middlewares.use('/api/commander', handler)
+      server.middlewares.use('/api/recovery', recovery)
+      server.middlewares.use('/api/prevention', prevention)
     },
     configurePreviewServer: (server) => {
       server.middlewares.use('/api/commander', handler)
+      server.middlewares.use('/api/recovery', recovery)
+      server.middlewares.use('/api/prevention', prevention)
     },
   }
 }

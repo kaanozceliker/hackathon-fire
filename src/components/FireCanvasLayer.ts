@@ -13,6 +13,10 @@ export interface FireLayerProps {
   perimeter: boolean
   /** Dim factor for cells (0–1), used for compare maps. */
   opacity?: number
+  /** Post-fire strategy colour per sector (index 0 = K, clockwise); burned-out cells take it. */
+  zoneColors?: (string | null)[] | null
+  /** Sector under the cursor, drawn brighter with a thicker border. */
+  zoneHover?: number | null
 }
 
 export interface CellInfo {
@@ -145,7 +149,8 @@ export class FireCanvasLayer extends L.Layer {
         if (f <= 0) continue
         const end = result.burnoutStep[i]
         let c: RGBA
-        if (step >= end) c = grid.kind[i] === 1 ? BURNED_URBAN : BURNED
+        const zc = this.props.zoneColors ? zoneRgba(this.props.zoneColors, this.zonesOf(result)[i], this.props.zoneHover ?? null) : null
+        if (step >= end) c = zc ?? (grid.kind[i] === 1 ? BURNED_URBAN : BURNED)
         else {
           const age = Math.max(0, step - t) / Math.max(1, end - t)
           c = FIRE_RAMP_RGBA[Math.min(FIRE_RAMP_RGBA.length - 1, Math.floor(age * FIRE_RAMP_RGBA.length))]
@@ -192,6 +197,33 @@ export class FireCanvasLayer extends L.Layer {
       })
     }
 
+    // --- 2a. borders between post-fire strategy zones ---
+    if (mode === 'fire' && result && this.props.zoneColors) {
+      const zones = this.zonesOf(result)
+      const hov = this.props.zoneHover ?? null
+      const X = (c: number) => nw.x + c * cw
+      const Y = (r: number) => nw.y + r * ch
+      for (const pass of [0, 1]) {
+        ctx.beginPath()
+        for (let r = 0; r < grid.rows; r++)
+          for (let c = 0; c < grid.cols; c++) {
+            const i = r * grid.cols + c
+            const a = zones[i]
+            for (const [dc, dr] of [[1, 0], [0, 1]]) {
+              if (c + dc >= grid.cols || r + dr >= grid.rows) continue
+              const b = zones[(r + dr) * grid.cols + c + dc]
+              if (a === b || (a < 0 && b < 0)) continue
+              if (pass === 1 && a !== hov && b !== hov) continue
+              if (dc) { ctx.moveTo(X(c + 1), Y(r)); ctx.lineTo(X(c + 1), Y(r + 1)) }
+              else { ctx.moveTo(X(c), Y(r + 1)); ctx.lineTo(X(c + 1), Y(r + 1)) }
+            }
+          }
+        ctx.lineWidth = pass ? 3 : 1.4
+        ctx.strokeStyle = pass ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.7)'
+        ctx.stroke()
+      }
+    }
+
     // --- 2b. embers: where they may land next (downwind of the burning edge) and the spot fires they just started ---
     if (mode === 'fire' && result) this.drawEmbers(ctx, grid, result, step, nw.x, nw.y, cw, ch)
 
@@ -205,6 +237,23 @@ export class FireCanvasLayer extends L.Layer {
       ctx.globalCompositeOperation = 'source-over'
     }
     ctx.globalAlpha = 1
+  }
+
+  private zoneCache?: { result: SimResult; zones: Int8Array }
+  /** Sector of every burned cell around the ignition point (-1 = not burned), cached per result. */
+  private zonesOf(result: SimResult): Int8Array {
+    if (this.zoneCache?.result === result) return this.zoneCache.zones
+    const { cols } = result.grid
+    const o = result.originCell
+    const zones = new Int8Array(result.ignitionStep.length).fill(-1)
+    for (let i = 0; i < zones.length; i++) {
+      if (result.ignitionStep[i] < 0) continue
+      const dx = (i % cols) - (o % cols)
+      const dy = ((i / cols) | 0) - ((o / cols) | 0)
+      zones[i] = dx || dy ? Math.round((((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360) / 45) % 8 : 0
+    }
+    this.zoneCache = { result, zones }
+    return zones
   }
 
   private windCache?: { result: SimResult; hour: number; w: ReturnType<typeof cellWeather> }
@@ -307,6 +356,12 @@ export class FireCanvasLayer extends L.Layer {
 }
 
 type RGBA = [number, number, number, number]
+function zoneRgba(colors: (string | null)[], zone: number, hover: number | null): RGBA | null {
+  const h = zone >= 0 ? colors[zone] : null
+  if (!h) return null
+  const lift = zone === hover ? 45 : 0
+  return [Math.min(255, parseInt(h.slice(1, 3), 16) + lift), Math.min(255, parseInt(h.slice(3, 5), 16) + lift), Math.min(255, parseInt(h.slice(5, 7), 16) + lift), zone === hover ? 250 : 225]
+}
 const hexRGBA = (hex: string, a: number): RGBA => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), Math.round(a * 255)]
 const FIRE_RAMP_RGBA = FIRE_RAMP.map((h) => hexRGBA(h, 0.92))
 const ARRIVAL_RGBA = ARRIVAL_BANDS.map((b) => hexRGBA(b.color, 0.55))

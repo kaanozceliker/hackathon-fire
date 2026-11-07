@@ -96,3 +96,17 @@ html body .leaflet-container { background: #0a1014; font-family: var(--font-sans
 .fg3d-label { color: #fff; font-size: 12px; font-weight: 600; text-shadow: 0 1px 3px #000, 0 0 2px #000; white-space: nowrap; pointer-events: none; }
 .fg3d-ignition { font-size: 18px; filter: drop-shadow(0 1px 2px #000); pointer-events: none; }
 .fg3d-unit { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: #0a1014; font-size: 11px; font-weight: 700; border: 2px solid #0a1014; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+
+/* post-fire strategy: zone tags and the zone card over the map */
+.fg-zone-tag { transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; padding: 2px 7px 2px 4px; background: rgba(10,16,20,.88); border: 1.5px solid; color: #e7eee9; font: 600 11.5px "Barlow Semi Condensed", sans-serif; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.fg-zone-tag span { width: 9px; height: 9px; display: inline-block; }
+.fg-popup .leaflet-popup-content-wrapper { background: #0f171c; color: #e7eee9; border: 1px solid #2f414b; border-radius: 3px; box-shadow: 0 6px 24px rgba(0,0,0,.55); }
+.fg-popup .leaflet-popup-tip { background: #0f171c; border: 1px solid #2f414b; }
+.fg-popup .leaflet-popup-content { margin: 12px 14px; font-family: "Barlow Semi Condensed", sans-serif; }
+.fg-popup a.leaflet-popup-close-button { color: #8a9ba3; }
+
+/* prevention measures on the map */
+.fg-pixelated { image-rendering: pixelated; }
+.fg-measure { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(10,16,20,.9); border: 2px solid; color: #e7eee9; font: 700 12px "Barlow Semi Condensed", sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.fg-zone-tag.fg-dim { opacity: .5; }
+.fg-zone-tag.fg-faded { opacity: .45; transform: translate(-50%, -50%) scale(.85); }

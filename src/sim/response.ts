@@ -133,6 +133,13 @@ const STATUS_TR: Record<ResourceStatus, string> = {
 }
 const KIND_TR: Record<ResourceKind, string> = { crew: 'arazöz ekibi', dozer: 'iş makinesi', heli: 'helikopter', plane: 'yangın söndürme uçağı' }
 
+/** Prevention measures applied to a run: lower fuel, an extra crew base, extra water points. */
+export interface RunOptions {
+  fuelMult?: Float32Array
+  extraBase?: LatLon
+  extraWater?: Infrastructure['water']
+}
+
 export class ResponseRun {
   readonly grid: Grid
   readonly config: SimConfig
@@ -160,12 +167,13 @@ export class ResponseRun {
   private hazards: Map<string, EdgeHazard> | null = null
   extinguishedStep: number | null = null
 
-  constructor(grid: Grid, config: SimConfig, settlements: Settlement[], infra: Infrastructure, responseStartMin: number) {
+  constructor(grid: Grid, config: SimConfig, settlements: Settlement[], infra: Infrastructure, responseStartMin: number, opts: RunOptions = {}) {
     this.grid = grid
     this.config = config
     this.settlements = settlements
-    this.infra = infra
+    this.infra = opts.extraWater?.length ? { ...infra, water: [...infra.water, ...opts.extraWater] } : infra
     this.st = new FireStepper(grid, config)
+    if (opts.fuelMult) this.st.scaleFuel(opts.fuelMult)
     this.startStep = Math.max(0, Math.round(responseStartMin / STEP_MIN))
     const n = grid.cols * grid.rows
     this.lineResist = new Float32Array(n).fill(1)
@@ -180,6 +188,11 @@ export class ResponseRun {
     const airBase = stations[0]?.pos ?? cellCenter(grid, this.st.origin)
     for (let k = 1; k <= 3; k++) this.addResource(`heli-${k}`, `Helikopter ${k}`, 'heli', airBase, Math.max(6, this.startStep + 3))
     this.addResource('ucak-1', 'Söndürme uçağı 1', 'plane', airBase, Math.max(9, this.startStep + 6))
+    // prevention: a summer pre-positioning base near the forest, staffed from the start of the response
+    if (opts.extraBase) {
+      for (let k = 1; k <= 2; k++) this.addResource(`on-${k}`, `Ön konuşlanma arazöz ${k}`, 'crew', opts.extraBase, this.startStep)
+      this.addResource('on-dozer', 'Ön konuşlanma iş makinesi', 'dozer', opts.extraBase, this.startStep)
+    }
     // reinforcements from neighbouring provinces arrive at the nearest station after 3 h and 6 h
     const reBase = stations[stations.length - 1]?.pos ?? airBase
     for (let k = 1; k <= 4; k++) this.addResource(`takviye-${k}`, `Takviye arazöz ${k}`, 'crew', reBase, this.startStep + 18)
