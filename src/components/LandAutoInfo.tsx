@@ -17,7 +17,15 @@ export function LandAutoInfo({ terrain, fuelLoad, auto, busy, originVeg }: { ter
           <b>{TERRAIN_LABEL[terrain]}</b>
         </div>
         <div className="mt-1 text-[11px] leading-snug text-muted">
-          {auto ? <>3 km içinde ortalama eğim %{Math.round(auto.terrain.meanSlopePct)}, %30'dan dik alan %{Math.round(auto.terrain.steepPct)}. Kaynak: Copernicus DEM.</> : 'Hesaplanıyor…'}
+          {auto ? (
+            <>
+              <div className="relative mb-1 mt-1.5 h-1.5 rounded-full bg-gradient-to-r from-[#3fa564] via-[#e3d23a] to-[#e5483d]">
+                <span className="absolute top-1/2 h-3 w-1 -translate-y-1/2 rounded-sm bg-ink shadow" style={{ left: `calc(${Math.min(100, (auto.terrain.meanSlopePct / 40) * 100)}% - 2px)` }} />
+              </div>
+              <div className="relative mb-1 h-3 text-[10px]"><span className="absolute left-0">Düz</span><span className="absolute -translate-x-1/2" style={{ left: '20%' }}>%8</span><span className="absolute -translate-x-1/2" style={{ left: '55%' }}>%22</span><span className="absolute right-0">Dik</span></div>
+              1,5 km içinde ortalama eğim %{Math.round(auto.terrain.meanSlopePct)}, %30'dan dik alan %{Math.round(auto.terrain.steepPct)}. Kaynak: Copernicus DEM.
+            </>
+          ) : 'Hesaplanıyor…'}
         </div>
       </div>
       <div className="border border-line2 bg-bg p-2.5">

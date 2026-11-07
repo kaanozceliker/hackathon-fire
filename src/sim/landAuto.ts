@@ -4,7 +4,7 @@ import type { Grid, TerrainType } from './types'
 
 /**
  * "Arazi ve yakıt" worked out from data instead of set by hand:
- * - terrain class from the slope of the real elevation (Copernicus DEM, baked) within 3 km of the ignition,
+ * - terrain class from the slope of the real elevation (Copernicus DEM, baked) within 1.5 km of the ignition,
  * - fuel state from how dry the vegetation is on the latest clear Sentinel-2 pass before the fire date: the
  *   Normalized Difference Moisture Index NDMI = (NIR − SWIR1) / (NIR + SWIR1) of vegetation pixels within 2 km.
  *   Low NDMI = dry leaves and needles = fire spreads more easily. Read in the browser from the public Earth Search
@@ -22,24 +22,18 @@ export interface LandAuto {
   cover?: { b64: string; date: string; barePct: number } | null
 }
 
-/** Slope of a cell (%), steepest of the four neighbours. */
+/** Slope of a cell (%): magnitude of the elevation gradient from its neighbours (central differences). */
 function slopePct(grid: Grid, i: number): number {
   const x = i % grid.cols
   const y = (i / grid.cols) | 0
-  let m = 0
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const xx = x + dx
-    const yy = y + dy
-    if (xx < 0 || yy < 0 || xx >= grid.cols || yy >= grid.rows) continue
-    const j = yy * grid.cols + xx
-    if (grid.kind[j] === 0) continue
-    m = Math.max(m, Math.abs(grid.elev[j] - grid.elev[i]) / grid.cellM)
-  }
-  return m * 100
+  const e = (xx: number, yy: number) => grid.elev[Math.min(grid.rows - 1, Math.max(0, yy)) * grid.cols + Math.min(grid.cols - 1, Math.max(0, xx))]
+  const dx = (e(x + 1, y) - e(x - 1, y)) / (2 * grid.cellM)
+  const dy = (e(x, y + 1) - e(x, y - 1)) / (2 * grid.cellM)
+  return Math.hypot(dx, dy) * 100
 }
 
 /** Terrain class from the land within `radiusM` of the point. */
-export function autoTerrain(grid: Grid, at: LatLon, radiusM = 3000): { terrain: TerrainType; meanSlopePct: number; steepPct: number } {
+export function autoTerrain(grid: Grid, at: LatLon, radiusM = 1500): { terrain: TerrainType; meanSlopePct: number; steepPct: number } {
   const c0 = cellOf(grid, at[0], at[1])
   let sum = 0
   let steep = 0
@@ -63,7 +57,8 @@ export function autoTerrain(grid: Grid, at: LatLon, radiusM = 3000): { terrain: 
   }
   const meanSlopePct = n ? sum / n : 0
   const steepPct = n ? (steep / n) * 100 : 0
-  const terrain: TerrainType = meanSlopePct < 8 && steepPct < 5 ? 'coastal-plain' : meanSlopePct < 20 && steepPct < 25 ? 'rolling-hills' : 'steep-mountain'
+  // thresholds on the mean slope around the start (1.5 km): flat below 8 %, steep above 22 %
+  const terrain: TerrainType = meanSlopePct < 8 ? 'coastal-plain' : meanSlopePct < 22 ? 'rolling-hills' : 'steep-mountain'
   return { terrain, meanSlopePct, steepPct }
 }
 
