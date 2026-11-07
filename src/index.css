@@ -6,13 +6,13 @@
 
 @theme {
   --font-sans: "Barlow Semi Condensed", ui-sans-serif, system-ui, sans-serif;
-  --color-bg: #0a1014;
-  --color-panel: #0f171c;
-  --color-panel2: #151f26;
-  --color-line: #233139;
-  --color-line2: #2f414b;
-  --color-ink: #e7eee9;
-  --color-muted: #8a9ba3;
+  --color-bg: #0c1311;
+  --color-panel: #121b18;
+  --color-panel2: #18241f;
+  --color-line: #22302a;
+  --color-line2: #304238;
+  --color-ink: #e8eee9;
+  --color-muted: #8e9f97;
   --color-ink-soft: #c8d3cd;
   --color-forest: #3fa564;
   --color-forest-dim: #1d4a31;
@@ -22,12 +22,12 @@
   --color-water: #3b9be0;
   --color-route: #4cd37a;
   --color-alt: #f2d03b;
-  --radius-xs: 1px;
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
-  --radius-xl: 4px;
-  --radius-2xl: 4px;
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
 }
 
 /* light theme: same tokens, light values (switched by data-theme on <html>, src/state/theme.tsx) */
@@ -60,24 +60,41 @@ body {
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
-*:focus-visible { outline: 2px solid var(--color-forest); outline-offset: 1px; }
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--color-line2); border-radius: 0; }
+*:focus-visible { outline: 2px solid var(--color-forest); outline-offset: 2px; border-radius: 4px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--color-line2); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--color-muted); }
+
+/* controls: soft corners everywhere; Tailwind utilities (rounded-*, rounded-none) still win */
+@layer base {
+  button, select, input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea { border-radius: var(--radius-md); }
+  select, input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea { transition: border-color .15s, box-shadow .15s; }
+  select:hover, input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):hover, textarea:hover { border-color: var(--color-muted); }
+  select:focus, input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):focus, textarea:focus { outline: none; border-color: var(--color-forest); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-forest) 22%, transparent); }
+  button { transition: background-color .15s, color .15s, border-color .15s, opacity .15s; }
+  button:disabled { cursor: not-allowed; }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--color-forest); }
+}
+@keyframes fg-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.fg-toast { animation: fg-toast-in .2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .fg-toast { animation: none; } }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* range inputs */
 input[type="range"] { -webkit-appearance: none; appearance: none; height: 18px; background: transparent; width: 100%; cursor: pointer; }
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 0;
+  height: 4px; border-radius: 4px;
   background: linear-gradient(to right, var(--color-forest) var(--p, 0%), var(--color-line2) var(--p, 0%));
 }
 input[type="range"]::-moz-range-track { height: 4px; background: var(--color-line2); }
 input[type="range"]::-moz-range-progress { height: 4px; background: var(--color-forest); }
 input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 10px; height: 16px; margin-top: -6px;
-  background: var(--color-ink); border: 0; border-radius: 1px;
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px;
+  background: var(--color-panel); border: 3px solid var(--color-forest); border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,.35);
 }
-input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: var(--color-ink); border: 0; border-radius: 1px; }
+input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: var(--color-panel); border: 3px solid var(--color-forest); border-radius: 50%; }
+input[type="range"]:hover::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-forest) 25%, transparent); }
 
 /* leaflet theming */
 html body .leaflet-container { background: var(--color-bg); font-family: var(--font-sans); font-size: 12px; }
