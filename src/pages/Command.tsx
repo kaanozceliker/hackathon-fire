@@ -10,7 +10,7 @@ import { lineColor } from '../components/ResponseLayer'
 import { regionById } from '../data/regions'
 import { getInfrastructure } from '../data/infrastructure'
 import { getGrid } from '../sim/gridCache'
-import { compass, fmtDuration } from '../sim/geo'
+import { compass, fmtDuration, haversineM } from '../sim/geo'
 import { weatherAt } from '../sim/weather'
 import type { Decision, ResourceKind, ResourceStatus, ResponseRecord, SimResult } from '../sim/types'
 import { useStore } from '../state/store'
@@ -284,6 +284,31 @@ export function Command() {
   )
 }
 
+/** The latest trip under way at step `s` (a newer order replaces an older trip). */
+function activeMove(moves: ResponseRecord['tracks'][number]['moves'], s: number) {
+  for (let k = moves.length - 1; k >= 0; k--) {
+    const m = moves[k]
+    if (m.fromStep <= s) return s < m.toStep ? m : null
+  }
+  return null
+}
+
+const pathLengths = new WeakMap<[number, number][], number[]>()
+/** Point at fraction `f` (0–1) of a path's length, at even speed. */
+function alongPath(path: [number, number][], f: number): [number, number] {
+  let cum = pathLengths.get(path)
+  if (!cum) {
+    cum = [0]
+    for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + haversineM(path[i - 1], path[i]))
+    pathLengths.set(path, cum)
+  }
+  const target = Math.min(1, Math.max(0, f)) * cum[cum.length - 1]
+  let i = 1
+  while (i < path.length - 1 && cum[i] < target) i++
+  const t = (target - cum[i - 1]) / Math.max(1e-6, cum[i] - cum[i - 1])
+  return [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t]
+}
+
 /**
  * Resource icons, moved every frame from the playback clock: each glides between the positions recorded at the
  * surrounding 10-minute steps instead of jumping. Markers are managed directly in Leaflet, not re-rendered by React.
@@ -315,7 +340,11 @@ function UnitsLayer({ rec, clockRef }: { rec: ResponseRecord; clockRef: { curren
         const p0 = pts[i]
         const p1 = pts[i + 1]
         const f = p1 && p1.step === p0.step + 1 ? Math.min(1, Math.max(0, s - p0.step)) : 0
-        const ll: [number, number] = p1 ? [p0.lat + (p1.lat - p0.lat) * f, p0.lon + (p1.lon - p0.lon) * f] : [p0.lat, p0.lon]
+        // on a trip: follow the recorded road path; otherwise glide between the sampled positions
+        const mv = activeMove(tr.moves, s)
+        const ll: [number, number] = mv
+          ? alongPath(mv.path, (s - mv.fromStep) / Math.max(1e-6, mv.toStep - mv.fromStep))
+          : p1 ? [p0.lat + (p1.lat - p0.lat) * f, p0.lon + (p1.lon - p0.lon) * f] : [p0.lat, p0.lon]
         seen.add(tr.id)
         let e = markers.get(tr.id)
         if (!e) {

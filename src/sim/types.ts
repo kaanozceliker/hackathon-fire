@@ -159,7 +159,14 @@ export interface ResponseRecord {
     /** Step each sector was first crossed by the fire, null if held. */
     breachedStep: (number | null)[]
   }[]
-  tracks: { id: string; name: string; kind: ResourceKind; points: { step: number; lat: number; lon: number; status: ResourceStatus }[] }[]
+  tracks: {
+    id: string
+    name: string
+    kind: ResourceKind
+    points: { step: number; lat: number; lon: number; status: ResourceStatus }[]
+    /** Each trip: the road path driven (or flown) between two steps, at even speed. */
+    moves: { fromStep: number; toStep: number; path: LatLon[] }[]
+  }[]
   drops: { step: number; lat: number; lon: number }[]
   evacuations: { settlementId: string; name: string; population: number; startStep: number; doneStep: number; atRisk: boolean; to: string; geom: LatLon[] }[]
   /** The same fire with no response, for comparison. */

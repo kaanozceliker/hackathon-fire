@@ -184,7 +184,7 @@ export class ResponseRun {
 
   private addResource(id: string, name: string, kind: ResourceKind, base: LatLon, availableFromStep: number) {
     this.resources.push({ id, name, kind, base, pos: base, status: 'unavailable', availableFromStep, task: null, carry: 0, path: null, pathFrom: 0, pathTo: 0, nextDropStep: 0, dispatched: false })
-    this.tracks.push({ id, name, kind, points: [] })
+    this.tracks.push({ id, name, kind, points: [], moves: [] })
   }
 
   get step() {
@@ -755,6 +755,7 @@ export class ResponseRun {
         res.path = route.path
         res.pathFrom = this.step
         res.pathTo = this.step + route.steps
+        this.recordMove(res)
         return `${res.name} → ${a.sector} sektöründe doğrudan müdahale, varış ${T(res.pathTo)}.`
       }
       case 'assign_line': {
@@ -770,6 +771,7 @@ export class ResponseRun {
         res.path = route.path
         res.pathFrom = this.step
         res.pathTo = this.step + route.steps
+        this.recordMove(res)
         return `${res.name} → ${line.id}/${a.sector}, varış ${T(res.pathTo)}.`
       }
       case 'air_drop': {
@@ -784,6 +786,7 @@ export class ResponseRun {
         res.path = [res.pos, dest]
         res.pathFrom = this.step
         res.pathTo = this.step + steps
+        this.recordMove(res)
         return `${res.name} → ${a.sector} sektöründe su atışı${this.daylight(this.step) ? `, ilk atış ${T(res.pathTo)}` : ', gün doğunca'}.`
       }
       case 'evacuate': {
@@ -815,11 +818,17 @@ export class ResponseRun {
         res.path = route.path
         res.pathFrom = this.step
         res.pathTo = this.step + route.steps
+        this.recordMove(res)
         return `${res.name} istasyona dönüyor.`
       }
       case 'hold':
         return 'Mevcut düzen korunuyor.'
     }
+  }
+
+  /** Keeps the trip just ordered, so playback can move the icon along the road instead of between samples. */
+  private recordMove(r: Resource) {
+    if (r.path && r.path.length > 1) this.tracks.find((t) => t.id === r.id)!.moves.push({ fromStep: r.pathFrom, toStep: r.pathTo, path: r.path.slice() })
   }
 
   /** Road route from a resource to a point, plus the off-road leg; returns the path and travel steps. */
@@ -853,7 +862,7 @@ export class ResponseRun {
       decisions: this.decisions.slice(),
       events: this.events.slice(),
       lines: this.lines.map((l) => ({ id: l.id, level: l.level, hoursAhead: l.hoursAhead, createdStep: l.createdStep, cells: l.cells, sectorOf: l.sectorOf, builtStep: l.builtStep.slice(), breachedStep: l.breachedStep.slice() })),
-      tracks: this.tracks.map((t) => ({ ...t, points: t.points.slice() })),
+      tracks: this.tracks.map((t) => ({ ...t, points: t.points.slice(), moves: t.moves.slice() })),
       drops: this.drops.slice(),
       evacuations: this.evacs.map(({ started: _s, ...e }) => ({ ...e })),
       baseline: b ? { affectedHa: b.affectedHa, forestHa: b.forestHa, settlementsReached: baseline!.impacts.filter((i) => i.arrivalMin !== null).length, steps: baseline!.steps } : { affectedHa: 0, forestHa: 0, settlementsReached: 0, steps: 0 },
