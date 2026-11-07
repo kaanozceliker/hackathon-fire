@@ -34,6 +34,28 @@ const FACTS: Record<string, { text: string; sources: { label: string; url: strin
 
 const WHATIF_RESPONSE_MIN = 30
 
+/** Short stable hash of a text (FNV-1a), for cache keys. */
+function hashText(t: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 0x01000193)
+  return (h >>> 0).toString(36)
+}
+function readCache<T>(key: string): T | null {
+  try {
+    const v = localStorage.getItem(key)
+    return v ? (JSON.parse(v) as T) : null
+  } catch {
+    return null
+  }
+}
+function writeCache(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // storage full or blocked: the next run asks again
+  }
+}
+
 function WhatIfComparison({ real, before, after }: { real: number; before: SimResult; after: SimResult }) {
   const ha = (r: SimResult) => Math.round(r.series[r.series.length - 1].affectedHa)
   const settl = (r: SimResult) => r.impacts.filter((i) => i.arrivalMin !== null).length
@@ -88,8 +110,12 @@ export function History() {
     let source: 'ai' | 'rules' = 'ai'
     let model: string | undefined
     let reason: string | undefined
+    // the AI answer is cached per fire and context: the same question is not sent twice
+    const cacheKey = `fg-whatif-plan:${fire.id}:${hashText(JSON.stringify(ctx))}`
+    const cached = readCache<{ output: PreventionPlan; model?: string }>(cacheKey)
     try {
-      const r = await askPrevention(ctx)
+      const r = cached ?? (await askPrevention(ctx))
+      if (!cached) writeCache(cacheKey, { output: r.output, model: r.model })
       plan = { ...r.output, selected: r.output.selected.filter((x) => cands.some((c) => c.id === x.id)) }
       model = r.model
     } catch (e) {
