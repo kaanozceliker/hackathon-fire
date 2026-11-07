@@ -54,13 +54,20 @@ function FitTo({ bounds, center, zoom, fitKey }: { bounds?: L.LatLngBoundsExpres
   const map = useMap()
   const latestBounds = useRef(bounds)
   latestBounds.current = bounds
+  // whether the current fitKey has been fitted yet (a zero-size container defers the first fit to a resize)
+  const fitted = useRef(false)
   useEffect(() => {
     let frame = 0
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         map.invalidateSize({ pan: false })
-        if (latestBounds.current) map.fitBounds(latestBounds.current, { padding: [24, 24], animate: false })
+        // refit only if the first fit never happened: panels changing size must not reset the user's zoom
+        const size = map.getSize()
+        if (!fitted.current && latestBounds.current && size.x > 0 && size.y > 0) {
+          map.fitBounds(latestBounds.current, { padding: [24, 24], animate: false })
+          fitted.current = true
+        }
       })
     })
     observer.observe(map.getContainer())
@@ -70,10 +77,12 @@ function FitTo({ bounds, center, zoom, fitKey }: { bounds?: L.LatLngBoundsExpres
     }
   }, [map])
   useEffect(() => {
+    fitted.current = false
     map.invalidateSize()
     // A hidden or zero-size container makes Leaflet compute NaN coordinates and throw; skip until it has a size.
     const size = map.getSize()
     if (size.x === 0 || size.y === 0) return
+    fitted.current = true
     if (bounds) map.fitBounds(bounds, { padding: [24, 24], animate: true })
     else if (center) map.flyTo(center, zoom ?? 7, { duration: 0.8 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
