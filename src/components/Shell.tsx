@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, PlayCircle, Route, TreePine } from 'lucide-react'
+import { BarChart3, ChevronsLeft, ChevronsRight, Flame, LayoutDashboard, PlayCircle, Route, Siren, TreePine } from 'lucide-react'
 import { useStore } from '../state/store'
 import { SimBadge } from './ui'
 
@@ -8,6 +8,7 @@ const NAV = [
   { to: '/', label: 'Gösterge Paneli', icon: LayoutDashboard },
   { to: '/studio', label: 'Simülasyon Stüdyosu', icon: Flame },
   { to: '/planner', label: 'Müdahale Planlayıcı', icon: Route },
+  { to: '/command', label: 'Komuta Merkezi', icon: Siren },
   { to: '/analytics', label: 'Analiz ve Raporlar', icon: BarChart3 },
 ]
 

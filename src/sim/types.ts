@@ -97,4 +97,72 @@ export interface SimResult {
   originCell: number
   series: StepStat[]
   impacts: SettlementImpact[]
+  /** Present when the run was fought by the response commander. */
+  response?: ResponseRecord
+}
+
+// ---------- response (Komuta Merkezi) ----------
+
+/** Eight compass sectors around the ignition point, clockwise from north. */
+export const SECTORS = ['K', 'KD', 'D', 'GD', 'G', 'GB', 'B', 'KB'] as const
+export type Sector = (typeof SECTORS)[number]
+
+export type ResourceKind = 'crew' | 'dozer' | 'heli' | 'plane'
+export type ResourceStatus = 'unavailable' | 'idle' | 'enroute' | 'attacking' | 'building' | 'holding' | 'dropping' | 'retreated' | 'grounded'
+
+export interface CommanderAction {
+  type: 'attack' | 'establish_line' | 'assign_line' | 'air_drop' | 'evacuate' | 'withdraw' | 'hold'
+  candidate: 'A' | 'B' | null
+  line_id: string | null
+  sector: Sector | null
+  resource_id: string | null
+  settlement_id: string | null
+  rationale: string
+}
+
+export interface CommanderOutput {
+  assessment: string
+  phase: string
+  actions: CommanderAction[]
+}
+
+export interface Decision {
+  step: number
+  trigger: string
+  source: 'ai' | 'rules'
+  /** Why the rules ran instead of the AI, when they did. */
+  fallbackReason?: string
+  output: CommanderOutput
+  /** One line per action: what the engine did with it. */
+  applied: string[]
+}
+
+export interface ResponseEvent {
+  step: number
+  kind: 'arrive' | 'retreat' | 'breach' | 'line_done' | 'evac_start' | 'evac_done' | 'evac_risk' | 'grounded' | 'airborne' | 'drop' | 'out'
+  text: string
+}
+
+export interface ResponseRecord {
+  startStep: number
+  decisions: Decision[]
+  events: ResponseEvent[]
+  lines: {
+    id: string
+    level: number
+    hoursAhead: number
+    createdStep: number
+    cells: number[]
+    sectorOf: number[]
+    /** Step each cell was cleared, -1 if never. */
+    builtStep: number[]
+    /** Step each sector was first crossed by the fire, null if held. */
+    breachedStep: (number | null)[]
+  }[]
+  tracks: { id: string; name: string; kind: ResourceKind; points: { step: number; lat: number; lon: number; status: ResourceStatus }[] }[]
+  drops: { step: number; lat: number; lon: number }[]
+  evacuations: { settlementId: string; name: string; population: number; startStep: number; doneStep: number; atRisk: boolean; to: string; geom: LatLon[] }[]
+  /** The same fire with no response, for comparison. */
+  baseline: { affectedHa: number; forestHa: number; settlementsReached: number; steps: number }
+  extinguishedStep: number | null
 }

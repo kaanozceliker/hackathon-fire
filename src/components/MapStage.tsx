@@ -3,9 +3,10 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { Layers } from 'lucide-react'
-import type { Grid, SimConfig, SimResult } from '../sim/types'
+import type { Grid, ResponseRecord, SimConfig, SimResult } from '../sim/types'
 import { WindParticleLayer } from './WindParticleLayer'
 import { SmokeLayer } from './SmokeLayer'
+import { ResponseLayer } from './ResponseLayer'
 import { aqiOf, computeSmoke, pmAt } from '../sim/smoke'
 import { weatherAt } from '../sim/weather'
 import { FireCanvasLayer, type CellInfo, type FireMode } from './FireCanvasLayer'
@@ -112,6 +113,24 @@ function SmokeLayerBridge({ smoke }: { smoke: { result: SimResult; step: number 
   return null
 }
 
+function ResponseLayerBridge({ grid, response }: { grid: Grid; response: { record: ResponseRecord; step: number } }) {
+  const map = useMap()
+  const layer = useRef<ResponseLayer | null>(null)
+  useEffect(() => {
+    const l = new ResponseLayer()
+    l.addTo(map)
+    layer.current = l
+    return () => {
+      l.remove()
+      layer.current = null
+    }
+  }, [map])
+  useEffect(() => {
+    layer.current?.setState(grid, response.record, response.step)
+  })
+  return null
+}
+
 export interface MapStageProps {
   grid?: Grid | null
   result?: SimResult | null
@@ -129,6 +148,8 @@ export interface MapStageProps {
   legend?: ReactNode
   controls?: ReactNode
   hud?: boolean
+  /** Safety lines, water drops and evacuation routes of a response run at a step. */
+  response?: { record: ResponseRecord; step: number } | null
   /** Animated smoke of this result at this step. */
   smoke?: { result: SimResult; step: number } | null
   /** Animated wind streaks for this scenario at this minute of the run. */
@@ -162,6 +183,7 @@ export function MapStage(p: MapStageProps) {
             onHover={setHover}
           />
         )}
+        {grid && p.response && <ResponseLayerBridge grid={grid} response={p.response} />}
         {p.smoke && <SmokeLayerBridge smoke={p.smoke} />}
         {grid && p.wind && <WindLayerBridge grid={grid} wind={p.wind} />}
         {p.children}

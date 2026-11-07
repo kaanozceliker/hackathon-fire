@@ -186,3 +186,47 @@ import { computeSmoke, pmAt } from '../src/sim/smoke'
   const rep = buildReport('demo', runSimulation(getGrid(m.id), defaultConfig(m), m.settlements))
   for (const s of rep.slice(4, 7)) console.log(`\n## ${s.title}\n- ${s.lines.join('\n- ')}`)
 }
+
+// ---- Komuta gate: the response changes the outcome, the fire can be put out, bad AI actions are refused safely ----
+import { ResponseRun, ruleCommander } from '../src/sim/response'
+{
+  const fails: string[] = []
+  const play = (id: string, patch: object, startMin: number) => {
+    const r = REGIONS.find((x) => x.id === id)!
+    const run = new ResponseRun(getGrid(r.id), { ...defaultConfig(r), ...patch, durationH: 72 }, r.settlements, getInfrastructure(r), startMin)
+    for (;;) {
+      const a = run.advance()
+      if (a.kind === 'end') break
+      run.apply(ruleCommander(run.context(a.trigger)), 'rules', a.trigger)
+    }
+    return run.finish()
+  }
+  const hard = play('mugla', {}, 30)
+  const soft = play('mugla', { windSpeedKmh: 15, humidityPct: 45, temperatureC: 28 }, 30)
+  const h = hard.response!
+  const s = soft.response!
+  const saved = 1 - hard.series.at(-1)!.affectedHa / h.baseline.affectedHa
+  console.log(`gate komuta: aşırı koşul ${Math.round(hard.series.at(-1)!.affectedHa)} ha (müdahalesiz ${Math.round(h.baseline.affectedHa)}, %${Math.round(saved * 100)} kurtarıldı), ${h.decisions.length} karar; ılımlı koşul ${soft.series.at(-1)!.affectedHa.toFixed(0)} ha, söndü ${s.extinguishedStep === null ? 'hayır' : `T+${(s.extinguishedStep / 6).toFixed(1)} sa`}`)
+  if (saved < 0.2) fails.push('erken müdahale yanan alanı %20 bile azaltmıyor')
+  if (s.extinguishedStep === null) fails.push('ılımlı koşulda yangın sönmüyor')
+  // an AI answer with made-up ids must be refused action by action, not crash the run
+  const r = REGIONS[0]
+  const run = new ResponseRun(getGrid(r.id), { ...defaultConfig(r), durationH: 72 }, r.settlements, getInfrastructure(r), 30)
+  const a = run.advance()
+  if (a.kind === 'decision') {
+    run.context(a.trigger)
+    run.apply({ assessment: 'test', phase: 'test', actions: [
+      { type: 'attack', candidate: null, line_id: null, sector: 'K', resource_id: 'yok-boyle-ekip', settlement_id: null, rationale: '' },
+      { type: 'assign_line', candidate: null, line_id: 'S9', sector: 'K', resource_id: 'ekip-1-1', settlement_id: null, rationale: '' },
+      { type: 'evacuate', candidate: null, line_id: null, sector: null, resource_id: null, settlement_id: 'hayali-koy', rationale: '' },
+    ] }, 'ai', a.trigger)
+    const applied = run.decisions[0].applied
+    console.log(`gate komuta: geçersiz eylemler -> ${applied.join(' | ')}`)
+    if (applied.some((x) => !/yapılamadı|Atanamadı|başlatılamadı/.test(x))) fails.push('geçersiz bir yapay zeka eylemi reddedilmedi')
+    if (run.advance().kind === 'end' && run.step < 10) fails.push('geçersiz eylemden sonra çalıştırma durdu')
+  }
+  if (fails.length) {
+    console.log('KOMUTA KAPISI GEÇİLMEDİ:\n  ' + fails.join('\n  '))
+    process.exitCode = 1
+  } else console.log('Komuta kapısı geçildi.')
+}

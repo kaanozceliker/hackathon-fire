@@ -73,74 +73,144 @@ function findOrigin(grid: Grid, config: SimConfig): number {
 }
 
 export function runSimulation(grid: Grid, config: SimConfig, settlements: Settlement[]): SimResult {
-  const { cols, rows, cellM } = grid
-  const n = cols * rows
+  const st = new FireStepper(grid, config)
   const steps = (config.durationH * 60) / STEP_MIN
-  const seed = seedFor(config)
-  const ig = new Int16Array(n).fill(-1)
-  const burnout = new Int16Array(n).fill(-1)
-  const origin = findOrigin(grid, config)
+  while (st.s < steps) st.step()
+  return st.result(settlements)
+}
 
-  const fuel = new Float32Array(n)
-  for (let i = 0; i < n; i++) fuel[i] = fuelOf(grid, i, config.fuelLoad)
+const BASE = 0.09
+/** Wind effect on spread: exp(WIND_K × km/h × cos(angle to the wind)). Head ~9.5× and back ~0.1× at 30 km/h. */
+const WIND_K = 0.075
 
-  // --- environment factors: per cell, recomputed whenever the run enters a new hour ---
-  const slopeMult = TERRAIN_SLOPE_MULT[config.terrain]
-  const inten = INTENSITY[config.intensity]
-  const BASE = 0.22
-  const dist = NEIGHBOURS.map(([dx, dy]) => (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1))
-  const bearing = NEIGHBOURS.map(([dx, dy]) => Math.atan2(dx, -dy)) // radians clockwise from north (rows run south)
-  const common = new Float32Array(n)
-  const spotRate = new Float32Array(n)
-  const windCache = new Float32Array(n * 8) // 0 = not computed yet for this hour
-  let wx: CellWeather = cellWeather(grid, config, 0)
-  let hourNow = -1
-  const enterHour = (h: number) => {
-    if (h === hourNow) return
-    hourNow = h
-    wx = cellWeather(grid, config, h)
-    windCache.fill(0)
+/**
+ * The fire, one 10-minute step at a time. Lets a caller pause between steps (to make response decisions) and change
+ * how easily cells catch fire: `resist` scales the chance of a cell igniting (firebreaks, wet lines, water drops),
+ * `extinguish` puts a burning cell out.
+ */
+export class FireStepper {
+  readonly grid: Grid
+  readonly config: SimConfig
+  readonly seed: number
+  readonly origin: number
+  /** Steps completed; the fire state is at the end of step `s`. */
+  s = 0
+  ig: Int16Array
+  burnout: Int16Array
+  burning: number[] = []
+  /** Multiplier on the chance that a cell ignites, 1 = untouched. */
+  resist: Float32Array
+  private fuel: Float32Array
+  private common: Float32Array
+  private spotRate: Float32Array
+  private windCache: Float32Array
+  private wx!: CellWeather
+  private hourNow = -1
+  private slopeMult: number
+  private dist = NEIGHBOURS.map(([dx, dy]) => (dx !== 0 && dy !== 0 ? Math.SQRT2 : 1))
+  private bearing = NEIGHBOURS.map(([dx, dy]) => Math.atan2(dx, -dy)) // radians clockwise from north (rows run south)
+  private inten: (typeof INTENSITY)[keyof typeof INTENSITY]
+
+  constructor(grid: Grid, config: SimConfig, copyFrom?: FireStepper) {
+    this.grid = grid
+    this.config = config
+    const n = grid.cols * grid.rows
+    this.seed = seedFor(config)
+    this.slopeMult = TERRAIN_SLOPE_MULT[config.terrain]
+    this.inten = INTENSITY[config.intensity]
+    this.common = new Float32Array(n)
+    this.spotRate = new Float32Array(n)
+    this.windCache = new Float32Array(n * 8)
+    if (copyFrom) {
+      this.origin = copyFrom.origin
+      this.s = copyFrom.s
+      this.ig = copyFrom.ig.slice()
+      this.burnout = copyFrom.burnout.slice()
+      this.burning = copyFrom.burning.slice()
+      this.resist = copyFrom.resist.slice()
+      this.fuel = copyFrom.fuel
+      return
+    }
+    this.origin = findOrigin(grid, config)
+    this.ig = new Int16Array(n).fill(-1)
+    this.burnout = new Int16Array(n).fill(-1)
+    this.resist = new Float32Array(n).fill(1)
+    this.fuel = new Float32Array(n)
+    for (let i = 0; i < n; i++) this.fuel[i] = fuelOf(grid, i, config.fuelLoad)
+    // initial ignition
+    const { cols, rows } = grid
+    const ox = this.origin % cols
+    const oy = Math.floor(this.origin / cols)
+    const r = this.inten.radius
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
+        const x = ox + dx
+        const y = oy + dy
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue
+        const i = y * cols + x
+        if (grid.kind[i] === 0 || this.ig[i] !== -1) continue
+        this.ig[i] = 0
+        this.burnout[i] = burnSteps(this.fuel[i], grid.kind[i])
+        this.burning.push(i)
+      }
+  }
+
+  /** A copy that can be run ahead (forecasts) without touching this one. */
+  clone(): FireStepper {
+    return new FireStepper(this.grid, this.config, this)
+  }
+
+  /** True while any cell is still burning. */
+  get active(): boolean {
+    return this.burning.some((c) => this.burnout[c] > this.s)
+  }
+
+  /** Puts a burning cell out now. */
+  extinguish(c: number) {
+    if (this.ig[c] >= 0 && this.burnout[c] > this.s) this.burnout[c] = this.s
+  }
+
+  private enterHour(h: number) {
+    if (h === this.hourNow) return
+    this.hourNow = h
+    const n = this.grid.cols * this.grid.rows
+    this.wx = cellWeather(this.grid, this.config, h)
+    this.windCache.fill(0)
     for (let i = 0; i < n; i++) {
-      const dryness = clamp((100 - wx.humidityPct[i]) / 100, 0, 1)
+      const dryness = clamp((100 - this.wx.humidityPct[i]) / 100, 0, 1)
       const humFactor = 0.25 + 1.5 * Math.pow(dryness, 1.5)
-      const tempFactor = clamp(0.6 + 0.025 * (wx.temperatureC[i] - 15), 0.45, 1.6)
-      const rainFactor = 1 / (1 + 1.4 * wx.precipMmH[i])
-      common[i] = BASE * humFactor * tempFactor * rainFactor * inten.mult
-      const ws = wx.windSpeedKmh[i]
-      spotRate[i] = ws > 14 ? 0.0028 * Math.pow((ws - 10) / 10, 1.5) * (0.4 + dryness) : 0
+      const tempFactor = clamp(0.6 + 0.025 * (this.wx.temperatureC[i] - 15), 0.45, 1.6)
+      const rainFactor = 1 / (1 + 1.4 * this.wx.precipMmH[i])
+      this.common[i] = BASE * humFactor * tempFactor * rainFactor * this.inten.mult
+      const ws = this.wx.windSpeedKmh[i]
+      this.spotRate[i] = ws > 14 ? 0.0028 * Math.pow((ws - 10) / 10, 1.5) * (0.4 + dryness) : 0
     }
   }
-  const windF = (c: number, k: number) => {
-    let v = windCache[c * 8 + k]
+
+  private windF(c: number, k: number) {
+    let v = this.windCache[c * 8 + k]
     if (v === 0) {
-      v = Math.exp(0.045 * wx.windSpeedKmh[c] * Math.cos(bearing[k] - wx.windToRad[c]))
-      windCache[c * 8 + k] = v
+      v = Math.exp(WIND_K * this.wx.windSpeedKmh[c] * Math.cos(this.bearing[k] - this.wx.windToRad[c]))
+      this.windCache[c * 8 + k] = v
     }
     return v
   }
-  enterHour(0)
 
-  // --- initial ignition ---
-  let burning: number[] = []
-  const ox = origin % cols
-  const oy = Math.floor(origin / cols)
-  for (let dy = -inten.radius; dy <= inten.radius; dy++)
-    for (let dx = -inten.radius; dx <= inten.radius; dx++) {
-      const x = ox + dx
-      const y = oy + dy
-      if (x < 0 || y < 0 || x >= cols || y >= rows) continue
-      const i = y * cols + x
-      if (grid.kind[i] === 0 || ig[i] !== -1) continue
-      ig[i] = 0
-      burnout[i] = burnSteps(fuel[i], grid.kind[i])
-      burning.push(i)
-    }
+  /** Wind of the current hour at a cell: speed km/h and the direction it blows to, radians clockwise from north. */
+  windAt(c: number): { speedKmh: number; toRad: number } {
+    this.enterHour(Math.floor((this.s * STEP_MIN) / 60))
+    return { speedKmh: this.wx.windSpeedKmh[c], toRad: this.wx.windToRad[c] }
+  }
 
-  for (let s = 0; s < steps; s++) {
-    enterHour(Math.floor((s * STEP_MIN) / 60))
+  step() {
+    const { grid, ig, burnout, fuel, resist, seed } = this
+    const { cols, rows, cellM } = grid
+    const s = this.s
+    this.enterHour(Math.floor((s * STEP_MIN) / 60))
     const next: number[] = []
     const stillBurning: number[] = []
-    for (const c of burning) {
+    for (const c of this.burning) {
+      if (burnout[c] <= s) continue // put out by the response
       if (burnout[c] > s + 1) stillBurning.push(c)
       const cx = c % cols
       const cy = (c / cols) | 0
@@ -153,9 +223,9 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         if (ig[j] !== -1) continue
         const f = fuel[j]
         if (f <= 0) continue
-        const g = ((grid.elev[j] - grid.elev[c]) / (cellM * dist[k])) * slopeMult
+        const g = ((grid.elev[j] - grid.elev[c]) / (cellM * this.dist[k])) * this.slopeMult
         const slopeF = Math.exp(clamp(g * 3.2, -1.2, 1.4))
-        const p = Math.min(0.97, (common[c] * windF(c, k) * slopeF * f * src) / (dist[k] === 1 ? 1 : 1.35))
+        const p = Math.min(0.97, (this.common[c] * this.windF(c, k) * slopeF * f * src * resist[j]) / (this.dist[k] === 1 ? 1 : 1.35))
         if (hash3(seed, c * 8 + k, s) < p) {
           ig[j] = s + 1
           burnout[j] = s + 1 + burnSteps(f, grid.kind[j])
@@ -163,10 +233,10 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         }
       }
       // ember spotting (vegetation fires only)
-      if (spotRate[c] > 0 && src === 1 && hash3(seed + 1, c, s) < spotRate[c]) {
-        const d = 3 + Math.floor(hash3(seed + 2, c, s) * (wx.windSpeedKmh[c] / 5))
-        const spotDx = Math.sin(wx.windToRad[c])
-        const spotDy = -Math.cos(wx.windToRad[c])
+      if (this.spotRate[c] > 0 && src === 1 && hash3(seed + 1, c, s) < this.spotRate[c]) {
+        const d = 3 + Math.floor(hash3(seed + 2, c, s) * (this.wx.windSpeedKmh[c] / 5))
+        const spotDx = Math.sin(this.wx.windToRad[c])
+        const spotDy = -Math.cos(this.wx.windToRad[c])
         const ang = (hash3(seed + 3, c, s) - 0.5) * 0.8
         const ca = Math.cos(ang)
         const sa = Math.sin(ang)
@@ -176,7 +246,8 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         const y = Math.round(cy + vy * d)
         if (x >= 0 && y >= 0 && x < cols && y < rows) {
           const j = y * cols + x
-          const accept = grid.kind[j] === 1 ? 0.05 : 0.35 + 0.5 * fuel[j]
+          // a cleared firebreak gives embers little to land in; a wet line damps them
+          const accept = (grid.kind[j] === 1 ? 0.05 : 0.35 + 0.5 * fuel[j]) * Math.min(1, resist[j] * 2)
           if (ig[j] === -1 && fuel[j] > 0 && hash3(seed + 4, c, s) < accept) {
             ig[j] = s + 1
             burnout[j] = s + 1 + burnSteps(fuel[j], grid.kind[j])
@@ -185,12 +256,27 @@ export function runSimulation(grid: Grid, config: SimConfig, settlements: Settle
         }
       }
     }
-    burning = stillBurning.concat(next)
+    this.burning = stillBurning.concat(next)
+    this.s = s + 1
   }
 
-  const series = computeSeries(grid, ig, burnout, steps, origin)
-  const impacts = computeImpacts(grid, ig, settlements)
-  return { config, grid, stepMin: STEP_MIN, steps, ignitionStep: ig, burnoutStep: burnout, originCell: origin, series, impacts }
+  /** The run so far as a result (steps = steps completed). */
+  result(settlements: Settlement[], configOverride?: SimConfig): SimResult {
+    const steps = this.s
+    const ig = this.ig.slice()
+    const burnout = this.burnout.slice()
+    return {
+      config: configOverride ?? this.config,
+      grid: this.grid,
+      stepMin: STEP_MIN,
+      steps,
+      ignitionStep: ig,
+      burnoutStep: burnout,
+      originCell: this.origin,
+      series: computeSeries(this.grid, ig, burnout, steps, this.origin),
+      impacts: computeImpacts(this.grid, ig, settlements),
+    }
+  }
 }
 
 function computeSeries(grid: Grid, ig: Int16Array, burnout: Int16Array, steps: number, origin: number): StepStat[] {

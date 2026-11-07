@@ -30,3 +30,8 @@ Duman ve emisyon (`src/sim/smoke.ts`, tarama modeli): yanan biyokütle × emisyo
 duman 550 m'lik, yangın ızgarasının 3 katı genişlikte bir alanda saatlik rüzgarla taşınır, gece/gündüz değişen karışım yüksekliğine
 karıştırılır, büyük yangınlarda bir kısmı yukarı taşınır. Yerleşim etkisi ABD EPA PM2.5 endeksi kategorileriyle verilir. Ölçüm yerine geçmez.
 
+
+Komuta Merkezi (`/command`): yangın canlı ilerler; karar anlarında yapay zeka olay komutanı (OpenAI, ChatGPT API) durumu değerlendirip
+müdahale kararları verir, motor bu kararların etkisini hesaplar. Anahtar yalnızca sunucuda kullanılır (`server/commander.ts`);
+`.env.example` dosyasını `.env` olarak kopyalayıp `OPENAI_API_KEY` (ve isteğe bağlı `OPENAI_MODEL`, varsayılan `gpt-5.5`) girin.
+Anahtar yoksa veya API hata verirse kararları kural tabanlı komutan verir. Üretimde: `npm run build`, ardından `npm run serve`.

@@ -1,7 +1,29 @@
-import { defineConfig } from 'vite'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
+type Handler = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
+
+/** Mounts the AI commander API (server/commander.ts) on the dev and preview servers. */
+function commanderApi(): Plugin {
+  const handler: Handler = (req, res, next) => {
+    import('./server/commander').then(({ commanderHandler }) => commanderHandler(req, res, next)).catch(next)
+  }
+  return {
+    name: 'forestguard-commander-api',
+    configureServer: (server) => {
+      server.middlewares.use('/api/commander', handler)
+    },
+    configurePreviewServer: (server) => {
+      server.middlewares.use('/api/commander', handler)
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  // server-side secrets from .env (no VITE_ prefix, so they never reach the browser bundle)
+  const env = loadEnv(mode, process.cwd(), '')
+  for (const k of ['OPENAI_API_KEY', 'OPENAI_MODEL']) if (env[k] && !process.env[k]) process.env[k] = env[k]
+  return { plugins: [react(), tailwindcss(), commanderApi()] }
 })

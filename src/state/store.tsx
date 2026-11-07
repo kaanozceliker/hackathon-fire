@@ -62,6 +62,8 @@ interface Store {
   selectedRegionId: string
   setSelectedRegionId: (id: string) => void
   removeScenario: (id: string) => void
+  /** Adds a finished run (e.g. from the Komuta Merkezi) as a scenario and makes it active. */
+  addScenario: (name: string, result: SimResult) => string
   toast: string | null
   notify: (m: string) => void
   demoPlayed: boolean
@@ -192,6 +194,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setCompareIds((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length >= 4 ? [...c.slice(1), id] : [...c, id])),
       selectedRegionId,
       setSelectedRegionId,
+      addScenario: (name: string, result: SimResult) => {
+        customCount.current += 1
+        const id = `run-${customCount.current}`
+        const sc: Scenario = { id, name, color: CUSTOM_COLORS[(customCount.current - 1) % CUSTOM_COLORS.length], result, createdAt: Date.now(), preset: false }
+        setScenarios((list) => {
+          const customs = list.filter((x) => !x.preset)
+          const keep = customs.length >= 5 ? list.filter((x) => x.id !== customs[0].id) : list
+          return [...keep, sc]
+        })
+        setActiveId(id)
+        setDraft(result.config)
+        setStepRaw(result.steps)
+        return id
+      },
       removeScenario: (id: string) => {
         setScenarios((list) => list.filter((s) => s.id !== id || s.preset))
         setCompareIds((c) => c.filter((x) => x !== id))

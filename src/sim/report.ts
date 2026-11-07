@@ -61,6 +61,7 @@ export function buildReport(name: string, res: SimResult): ReportSection[] {
         : ['Simüle edilen süre içinde çalışma alanındaki hiçbir yerleşime ulaşılmıyor.'],
     },
     ...smokeSections(res),
+    ...(res.response ? [responseSection(res)] : []),
     {
       title: 'Önerilen müdahale değerlendirmeleri',
       lines: [
@@ -87,6 +88,28 @@ function hourlyWeatherLines(c: SimResult['config']): string[] {
       ? `Rüzgar T+${shift.hour}:00'da ${compass(shift.fromDeg)} yönünden ${compass(shift.toDeg)} yönüne döndü; yayılım yönü buna göre değişir.`
       : 'Simüle edilen süre boyunca rüzgar yönünde 45°yi aşan bir dönüş yok.',
   ]
+}
+
+/** What the commander did and what it achieved, for runs from the Komuta Merkezi. */
+function responseSection(res: SimResult): ReportSection {
+  const r = res.response!
+  const f = res.series[res.series.length - 1]
+  const ai = r.decisions.filter((d) => d.source === 'ai').length
+  const phases = [...new Set(r.decisions.map((d) => d.output.phase))]
+  const key = r.decisions.filter((d, i) => i === 0 || d.output.phase !== r.decisions[i - 1].output.phase).slice(0, 6)
+  return {
+    title: 'Müdahale ve komuta kararları',
+    lines: [
+      `Müdahale ${T(r.startStep * STEP_MIN)}'da başladı; ${r.decisions.length} karar verildi (${ai} tanesi yapay zeka komutanı ChatGPT'den, ${r.decisions.length - ai} tanesi kural tabanlı).`,
+      r.extinguishedStep !== null ? `Yangın ${T(r.extinguishedStep * STEP_MIN)}'da söndü.` : `Simülasyon ${T(res.steps * STEP_MIN)}'da sona erdi; yangın sönmedi.`,
+      `Müdahaleyle ${n0(f.affectedHa)} ha yandı; müdahale olmasaydı aynı sürede ${n0(r.baseline.affectedHa)} ha yanacaktı (${n0(Math.max(0, r.baseline.affectedHa - f.affectedHa))} ha kurtarıldı). Yangının ulaştığı yerleşim: ${res.impacts.filter((i) => i.arrivalMin !== null).length}, müdahalesiz ${r.baseline.settlementsReached}.`,
+      `Evreler: ${phases.join(' → ')}.`,
+      ...key.map((d) => `${T(d.step * STEP_MIN)} – ${d.output.phase}: ${d.output.assessment}`),
+      `Güvenlik sınırları: ${r.lines.length ? r.lines.map((l) => `${l.id} (${l.hoursAhead} saatlik tahmini çevre, %${Math.round((l.builtStep.filter((b) => b >= 0).length / Math.max(1, l.cells.length)) * 100)} açıldı, ${l.breachedStep.filter((b) => b !== null).length}/8 sektörde aşıldı)`).join('; ') : 'kurulmadı'}. Su atışı: ${r.drops.length}.`,
+      r.evacuations.length ? `Tahliyeler: ${r.evacuations.map((e) => `${e.name} (${n0(e.population)} kişi, ${T(e.startStep * STEP_MIN)}–${T(e.doneStep * STEP_MIN)}${e.atRisk ? ', yangın tahliye bitmeden ulaştı' : ''})`).join('; ')}.` : 'Tahliye kararı verilmedi.',
+      'Söndürme etkileri basitleştirilmiştir; komutanın kararları doğrulanmış yangın taktiği değildir.',
+    ],
+  }
 }
 
 const MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']

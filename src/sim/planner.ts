@@ -156,7 +156,7 @@ class MinHeap {
   }
 }
 
-function findRoute(
+export function findRoute(
   infra: Infrastructure,
   hazards: Map<string, EdgeHazard>,
   fromId: string,
@@ -288,4 +288,10 @@ export function buildResponsePlan(result: SimResult, infra: Infrastructure, sett
     .sort((a, b) => a.distanceKm - b.distanceKm)
 
   return { target, primary, alternative, evacuations, hazards: hazardList, dangerous, threatened, water, stationsEvaluated: stations.length }
+}
+
+/** Route between two nodes of the road graph, avoiding roads the fire reaches first. Null if unreachable. */
+export function routeBetween(result: SimResult, infra: Infrastructure, fromId: string, toId: string, startMin: number): RoutePlan | null {
+  const hz = new Map(buildHazards(result, infra).map((h) => [h.edge.id, h]))
+  return findRoute(infra, hz, fromId, toId, startMin)
 }
