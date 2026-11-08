@@ -73,3 +73,5 @@ Anahtar yoksa veya API hata verirse kararları kural tabanlı komutan verir. Ür
 - Anahtarsız OSM altlığı normal etkileşimli demo içindir. Kamuya açık yoğun kullanım veya çevrimdışı harita için uygun bir sağlayıcı seçilmelidir; [OSM kullanım politikası](https://operations.osmfoundation.org/policies/tiles/).
 - İnternete açık AI uçları için kimlik doğrulama, istek boyutu/sıklığı, zaman aşımı ve harcama sınırları henüz eklenmedi.
 - Başarılı derleme, modelin bilimsel olarak doğrulandığı veya üretim tesliminin tamamlandığı anlamına gelmez; kalan adımlar inceleme belgesindedir.
+
+[![mühür](https://muhur-phi.vercel.app/api/rozet/ekozeka-2026/3)](https://muhur-phi.vercel.app/sergi/ekozeka-2026/3)
