@@ -10,6 +10,8 @@ export type CommanderMode = 'ai' | 'rules'
 /** Simulation minutes per playback tick. */
 export const TICK_MIN = 15
 export type RunStatus = 'idle' | 'running' | 'done' | 'stopped'
+/** How far ahead of the playhead (engine steps) a decision may be asked for. */
+const LOOKAHEAD = 36
 
 /**
  * Drives a live response run for the Komuta Merkezi. The engine computes up to the next decision point; playback
@@ -101,10 +103,12 @@ export function useCommandRun() {
     setStatus('idle')
   }, [])
 
-  // decide when the playhead reaches the pending decision point
+  // ask for the decision as soon as the engine reaches the decision point, not when the playhead does: the commander
+  // thinks while the playback catches up, so the wait is hidden. The state at that point is final (the engine stops
+  // there), so asking early changes nothing in the decision. Not more than LOOKAHEAD steps ahead of the playhead.
   useEffect(() => {
     const run = runRef.current
-    if (!run || !pending || head < pending.step || deciding.current || status !== 'running') return
+    if (!run || !pending || pending.step - head > LOOKAHEAD || deciding.current || status !== 'running') return
     deciding.current = true
     setThinking(true)
     const ctrl = new AbortController()
@@ -172,5 +176,7 @@ export function useCommandRun() {
     [frontier],
   )
 
-  return { status, live, baseline, frontier, head, headMin, clockRef, setHead, playing, setPlaying, speed, setSpeed, pending, thinking, start, stop, reset }
+  // "thinking" for the screen only once the playhead is held at the decision point; before that it is unseen
+  const waiting = thinking && !!pending && head >= pending.step
+  return { status, live, baseline, frontier, head, headMin, clockRef, setHead, playing, setPlaying, speed, setSpeed, pending, thinking: waiting, start, stop, reset }
 }

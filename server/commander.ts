@@ -88,7 +88,8 @@ export async function commanderHandler(req: IncomingMessage, res: ServerResponse
       instructions: SYSTEM,
       input: `Karar anı. Durum:
 ${JSON.stringify(body.context, null, 1)}`,
-      reasoning: { effort: 'medium' },
+      // low: most of the wait is the model thinking; the playback waits on this decision
+      reasoning: { effort: 'low' },
       max_output_tokens: 8000,
       text: { format: zodTextFormat(Output, 'komutan_karari') },
     })
