@@ -1241,24 +1241,22 @@ export function guardDecision(ai: CommanderOutput, rules: CommanderOutput, ctx: 
     tasked.add(a.resource_id!)
     actions.push(a)
   }
-  let added = 0
   let needRuleLine = false
   for (const r of rules.actions) {
     if (!r.resource_id || !isFree(r.resource_id) || tasked.has(r.resource_id)) continue
     // a task on the rules' new line: the AI's new line has the same id; without one, the rules' line is opened
     if (r.type === 'assign_line' && r.line_id === ctx.next_line_id && !aiLine) needRuleLine = true
-    actions.push({ ...r, rationale: `${r.rationale} (kural tabanlı tamamlama)` })
+    actions.push(r)
     tasked.add(r.resource_id)
-    added++
   }
-  if (needRuleLine && ruleLine) actions.unshift({ ...ruleLine, rationale: `${ruleLine.rationale} (kural tabanlı tamamlama)` })
+  if (needRuleLine && ruleLine) actions.unshift(ruleLine)
   const evacuating = new Set(actions.filter((a) => a.type === 'evacuate').map((a) => a.settlement_id))
   for (const r of rules.actions)
     if (r.type === 'evacuate' && !evacuating.has(r.settlement_id)) {
-      actions.push({ ...r, rationale: `${r.rationale} (can güvenliği, kural tabanlı tamamlama)` })
-      added++
+      actions.push(r)
     }
   if (!actions.length) actions.push({ type: 'hold', candidate: null, line_id: null, sector: null, resource_id: null, settlement_id: null, rationale: 'Mevcut görevler sürüyor.' })
-  const note = added || dropped ? ` Geçersiz veya gereksiz ${dropped} eylem çıkarıldı, ${added} eylem kural tabanlı komutanla tamamlandı.` : ''
-  return { ...ai, actions, assessment: ai.assessment + note }
+  // the AI answers with its changes only; the rest of the plan is the rules' suggestion it kept
+  const note = dropped ? ` (${dropped} geçersiz eylem uygulanmadı.)` : ''
+  return { ...ai, phase: ai.phase || rules.phase, actions, assessment: ai.assessment + note }
 }

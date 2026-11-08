@@ -16,8 +16,9 @@ const model = () => process.env.OPENAI_MODEL || 'gpt-5.5'
 
 const SECTOR = z.enum(['K', 'KD', 'D', 'GD', 'G', 'GB', 'B', 'KB'])
 const Output = z.object({
-  assessment: z.string().describe('2-4 cümlelik durum değerlendirmesi: ne oluyor, en büyük risk ne.'),
+  assessment: z.string().describe('Tek kısa cümle: durum ve en büyük risk.'),
   phase: z.string().describe('Kısa evre adı, ör. "İlk müdahale", "1. güvenlik sınırı", "2. güvenlik sınırına geçiş", "Kontrol ve soğutma".'),
+  // only the changes to rule_suggestion: everything left out is applied as the rules suggest (short output = fast answer)
   actions: z.array(
     z.object({
       type: z.enum(['attack', 'establish_line', 'assign_line', 'air_drop', 'evacuate', 'withdraw', 'hold']),
@@ -26,14 +27,16 @@ const Output = z.object({
       sector: SECTOR.nullable(),
       resource_id: z.string().nullable(),
       settlement_id: z.string().nullable(),
-      rationale: z.string().describe('Bu eylemin tek cümlelik gerekçesi.'),
+      rationale: z.string().describe('En fazla 12 kelimelik gerekçe.'),
     }),
   ),
 })
 
 const SYSTEM = `Sen ForestGuard simülasyonunda orman yangını olay komutanısın. Simülasyon temsilidir; kararların bir eğitim ve planlama aracında gösterilir, gerçek bir operasyonu yönetmez.
 
-Her karar anında sana durumun JSON özeti gelir: yangın (sektörlere göre), şu anki ve önümüzdeki 6 saatin havası, yeni bir şey yapılmazsa 2 ve 5 saat sonraki tahmin, aday güvenlik sınırları, kurulu sınırlar, kaynaklar, yerleşimler, son olaylar ve önceki kararların. Kararını eylem listesi olarak ver.
+Her karar anında sana durumun JSON özeti gelir: yangın (sektörlere göre), şu anki ve önümüzdeki 6 saatin havası, yeni bir şey yapılmazsa 2 ve 5 saat sonraki tahmin, aday güvenlik sınırları, kurulu sınırlar, kaynaklar, yerleşimler, son olaylar ve önceki kararların. Ayrıca rule_suggestion: aynı an için test edilmiş kural tabanlı komutanın kararı.
+
+ÇIKTI: actions listesine YALNIZCA rule_suggestion'dan FARKLI olan eylemleri yaz. Yazmadığın her şey rule_suggestion'daki gibi uygulanır. Öneri iyiyse actions boş liste olsun. Kısa yaz: hızlı yanıt önemli.
 
 Sektörler ateşin başladığı noktaya göre 8 pusula yönüdür: K, KD, D, GD, G, GB, B, KB.
 
@@ -48,13 +51,9 @@ Eylemler (her eylemde kullanılmayan alanlar null):
 
 Amaç: yanan alanı ve süreyi en aza indirmek, can kaybını sıfırda tutmak.
 
-rule_suggestion: Aynı an için test edilmiş kural tabanlı komutanın kararı. Bu senin TEMELİN.
-- Somut bir sebebin yoksa öneriyi aynen uygula (aynı eylemler, aynı kimlikler).
-- Değiştirirsen yalnızca daha iyi olduğunu verilerle gösterebildiğin yerde değiştir ve gerekçede hangi veriye dayandığını yaz (ör. sektördeki büyüme, rüzgar tahmini, sınırın aşılması).
-- Öneriden daha az kaynak kullanma, öneride olan tahliyeyi atlama.
+rule_suggestion senin TEMELİN. Yalnızca verilerle daha iyi olduğunu gösterebildiğin yerde değiştir (ör. sektördeki büyüme, rüzgar tahmini, sınırın aşılması); bir kaynağın görevini değiştirmek için o kaynak için yeni eylemi yaz.
 
 Kesin kurallar:
-- Durumu "boşta" veya "geri çekildi" olan HER kaynağa bu kararda görev ver. Boşta kaynak bırakmak yangını büyütür.
 - Görevdeki kaynağı yeniden görevlendirme ve withdraw verme; her yer değişikliği yol süresi kaybettirir. İstisna: o kaynağın sektörü söndüyse veya sınırı aşıldıysa.
 - Hava araçları gündüz yangının başına (spreading_toward sektörü) su atar; en hızlı büyüyen sektör başa eşittir.
 - Rüzgar 20 km/sa üstündeyse kara ekiplerini başa değil kanatlara (başın iki yanı) ve arkaya gönder.
@@ -62,10 +61,17 @@ Kesin kurallar:
 - Sınır baş tarafta aşıldıysa hemen yeni bir B sınırı kur.
 - Önce can güvenliği: forecast_fire_arrival dolu olan veya yangına 3 km'den yakın her yerleşimi tahliye et.
 - Sadece verilen kimlikleri kullan (resource_id, settlement_id, line_id, candidate). "henüz yok" durumundaki kaynağı görevlendirme.
-- Boşta kaynak yoksa ve öneri de hold ise tek bir hold eylemi ver.
 - Tüm metinler Türkçe, kısa ve somut olsun; sayıları ve saatleri verilen veriden al, uydurma.`
 
 let client: OpenAI | null = null
+
+/** The rules' suggestion without its wording: the model needs the actions, not the texts (shorter input). */
+function compactContext(ctx: unknown): unknown {
+  const c = ctx as { rule_suggestion?: { phase?: string; actions?: Record<string, unknown>[] } }
+  if (!c?.rule_suggestion?.actions) return ctx
+  const actions = c.rule_suggestion.actions.map((a) => Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'rationale' && v !== null)))
+  return { ...c, rule_suggestion: { phase: c.rule_suggestion.phase, actions } }
+}
 const hasKey = () => !!process.env.OPENAI_API_KEY
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -98,10 +104,11 @@ export async function commanderHandler(req: IncomingMessage, res: ServerResponse
       model: model(),
       instructions: SYSTEM,
       input: `Karar anı. Durum:
-${JSON.stringify(body.context, null, 1)}`,
-      // low: most of the wait is the model thinking; the playback waits on this decision
-      reasoning: { effort: 'low' },
-      max_output_tokens: 8000,
+${JSON.stringify(compactContext(body.context))}`,
+      // most of the wait is the model thinking. "none": ~2 s a decision and still better than the rules (it starts
+      // from their decision and only writes changes); COMMANDER_EFFORT=low in .env thinks more, ~4 s a decision
+      reasoning: { effort: (process.env.COMMANDER_EFFORT as 'none' | 'low' | 'medium' | undefined) ?? 'none' },
+      max_output_tokens: 3000,
       text: { format: zodTextFormat(Output, 'komutan_karari') },
     })
     const refusal = response.output

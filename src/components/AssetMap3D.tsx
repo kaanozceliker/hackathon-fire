@@ -141,12 +141,25 @@ export function AssetMap3D({ grid, polygon, kind }: { grid: Grid; polygon: LatLo
       map.addLayer({ id: 'fg-asset-fill', type: 'fill', source: 'fg-asset-area', paint: { 'fill-color': AREA_COLOR[kind], 'fill-opacity': 0.55 } })
       map.addLayer({ id: 'fg-asset-line', type: 'line', source: 'fg-asset-area', paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [2, 1.5] } })
       map.addLayer(new TreeLayer(grid, () => ({ result: null, step: 0 })))
-      // the model needs the terrain under the area: add it once the view has settled
-      map.once('idle', () => {
+      // the model needs the terrain under the area: add it once the view has settled, or as soon as the terrain is
+      // there when the map never goes idle (something keeps it redrawing)
+      let added = false
+      const add = () => {
+        if (added || mapRef.current !== map) return
+        added = true
         const l = new AssetModelLayer(polygon, kind)
         layer.current = l
         map.addLayer(l)
-      })
+      }
+      // only once the terrain under the area can be read (else the model would sit at sea level)
+      const centre: [number, number] = [(Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2]
+      const whenTerrain = () => {
+        if (added || mapRef.current !== map) return
+        if (map.queryTerrainElevation(centre) !== null) window.setTimeout(add, 800)
+        else window.setTimeout(whenTerrain, 500)
+      }
+      map.once('idle', whenTerrain)
+      window.setTimeout(whenTerrain, 1500)
     })
     return () => {
       layer.current = null
