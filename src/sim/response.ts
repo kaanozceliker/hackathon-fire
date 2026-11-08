@@ -113,6 +113,8 @@ export interface CommanderContext {
   forecast_without_new_actions: { area_in_2h_ha: number; area_in_5h_ha: number }
   line_candidates: { id: 'A' | 'B' | 'C'; fire_reaches_it_in_h: number; length_km: number; settlements_inside: string[]; sectors: { sector: Sector; radius_km: number }[] }[]
   next_line_id: string
+  /** The rule commander's decision at this moment, given to the AI as a tested baseline. */
+  rule_suggestion?: CommanderOutput
   lines: { id: string; level: number; created: string; sectors: { sector: Sector; built_pct: number; breached: boolean; resources: string[] }[] }[]
   resources: { id: string; name: string; type: string; status: string; task: string | null; eta: string | null }[]
   settlements: { id: string; name: string; population: number; distance_to_fire_km: number; forecast_fire_arrival: string | null; evacuation: string }[]
@@ -1198,4 +1200,65 @@ export function ruleCommander(ctx: CommanderContext): CommanderOutput {
     phase,
     actions,
   }
+}
+
+/**
+ * Keeps an AI decision at least as strong as the rule commander's at the same moment. The AI may change the plan
+ * (other sectors, line work instead of attack, which settlements first), but invalid or wasteful moves are dropped
+ * and what the rules would do is not left out:
+ * - a new safety line only when the rules would open one too (not one per decision, not on a small fire),
+ * - tasks only for free units, and only the kind a unit can do (ground units attack or cut line, aircraft drop),
+ *   on a line that exists or is opened in this decision; withdrawals are dropped,
+ * - every free unit the AI left without a task gets the rules' task for it (with the rules' new line if needed),
+ * - every evacuation the rules would start is started.
+ */
+export function guardDecision(ai: CommanderOutput, rules: CommanderOutput, ctx: CommanderContext): CommanderOutput {
+  const byId = new Map(ctx.resources.map((r) => [r.id, r]))
+  const isFree = (id: string | null) => !!id && (byId.get(id)?.status === 'boşta' || byId.get(id)?.status === 'geri çekildi')
+  const isAir = (id: string | null) => !!id && (byId.get(id)?.type === 'helikopter' || byId.get(id)?.type === 'yangın söndürme uçağı')
+  const ruleLine = rules.actions.find((a) => a.type === 'establish_line')
+  const aiLine = ruleLine ? ai.actions.find((a) => a.type === 'establish_line' && (a.candidate === 'A' || a.candidate === 'B')) : undefined
+  const lines = new Set(ctx.lines.map((l) => l.id))
+  if (aiLine) lines.add(ctx.next_line_id)
+  const actions: CommanderAction[] = aiLine ? [aiLine] : []
+  let dropped = 0
+  const tasked = new Set<string>()
+  for (const a of ai.actions) {
+    if (a.type === 'establish_line' || a.type === 'hold') continue
+    if (a.type === 'evacuate') {
+      if (a.settlement_id && ctx.settlements.some((st) => st.id === a.settlement_id)) actions.push(a)
+      continue
+    }
+    const ok =
+      a.type !== 'withdraw' && isFree(a.resource_id) && !tasked.has(a.resource_id!) &&
+      (a.type === 'air_drop' ? isAir(a.resource_id) && !!a.sector : !isAir(a.resource_id)) &&
+      (a.type !== 'assign_line' || (!!a.line_id && lines.has(a.line_id) && !!a.sector)) &&
+      (a.type !== 'attack' || !!a.sector)
+    if (!ok) {
+      dropped++
+      continue
+    }
+    tasked.add(a.resource_id!)
+    actions.push(a)
+  }
+  let added = 0
+  let needRuleLine = false
+  for (const r of rules.actions) {
+    if (!r.resource_id || !isFree(r.resource_id) || tasked.has(r.resource_id)) continue
+    // a task on the rules' new line: the AI's new line has the same id; without one, the rules' line is opened
+    if (r.type === 'assign_line' && r.line_id === ctx.next_line_id && !aiLine) needRuleLine = true
+    actions.push({ ...r, rationale: `${r.rationale} (kural tabanlı tamamlama)` })
+    tasked.add(r.resource_id)
+    added++
+  }
+  if (needRuleLine && ruleLine) actions.unshift({ ...ruleLine, rationale: `${ruleLine.rationale} (kural tabanlı tamamlama)` })
+  const evacuating = new Set(actions.filter((a) => a.type === 'evacuate').map((a) => a.settlement_id))
+  for (const r of rules.actions)
+    if (r.type === 'evacuate' && !evacuating.has(r.settlement_id)) {
+      actions.push({ ...r, rationale: `${r.rationale} (can güvenliği, kural tabanlı tamamlama)` })
+      added++
+    }
+  if (!actions.length) actions.push({ type: 'hold', candidate: null, line_id: null, sector: null, resource_id: null, settlement_id: null, rationale: 'Mevcut görevler sürüyor.' })
+  const note = added || dropped ? ` Geçersiz veya gereksiz ${dropped} eylem çıkarıldı, ${added} eylem kural tabanlı komutanla tamamlandı.` : ''
+  return { ...ai, actions, assessment: ai.assessment + note }
 }

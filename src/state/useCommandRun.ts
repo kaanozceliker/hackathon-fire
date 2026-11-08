@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ResponseRun, ruleCommander, type RunOptions } from '../sim/response'
+import { ResponseRun, guardDecision, ruleCommander, type RunOptions } from '../sim/response'
 import { STEP_MIN } from '../sim/engine'
 import { askCommander } from '../lib/commanderClient'
 import type { Infrastructure } from '../data/infrastructure'
@@ -120,7 +120,10 @@ export function useCommandRun() {
         return { output: ruleCommander(context), source: 'rules' as const, reason: undefined }
       }
       try {
-        return { output: await askCommander(context, ctrl.signal), source: 'ai' as const, reason: undefined }
+        // the AI starts from the rules' decision and may improve it; the guard keeps it from doing less
+        const base = ruleCommander(context)
+        const out = await askCommander({ ...context, rule_suggestion: base }, ctrl.signal)
+        return { output: guardDecision(out, base, context), source: 'ai' as const, reason: undefined }
       } catch (e) {
         if ((e as Error).name === 'AbortError') throw e
         return { output: ruleCommander(context), source: 'rules' as const, reason: (e as Error).message }
